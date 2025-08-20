@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Circuit - Clearer Return</title>
+    <style>
+        body { margin: 20px; font-family: sans-serif; background-color: #f0f0f0; text-align: center; }
+        canvas { border: 1px solid black; background-color: white; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto; }
+        .controls, .readings { margin-top: 15px; }
+        button { padding: 8px 12px; font-size: 0.9em; cursor: pointer; margin: 5px; border-radius: 5px; border: 1px solid #ccc; background-color: #e7e7e7; }
+        button:hover { background-color: #ddd; }
+        #readingDisplay { margin-top: 10px; padding: 10px; background-color: #fff; border: 1px solid #ccc; border-radius: 5px; min-height: 1.5em; display: inline-block; font-weight: bold; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<h1>Parallel Circuit Animation - Clearer Return Path</h1>
+<canvas id="circuitCanvas" width="600" height="450"></canvas>
+
+<div class="controls">
+    <button id="toggleSwitchBtn">Close Switch</button>
+    <button id="toggleBranchBtn">Add Third Branch</button>
+</div>
+
+<div class="readings">
+    <button id="showA1Btn">Show A1 Reading</button>
+    <button id="showA2Btn">Show A2 Reading</button>
+    <button id="showA3Btn">Show A3 Reading</button>
+    <button id="showA4Btn" class="hidden">Show A4 Reading</button>
+    <p id="readingDisplay">Click a button to see the reading.</p>
+</div>
+
+<script>
+    const canvas = document.getElementById('circuitCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const toggleButton = document.getElementById('toggleSwitchBtn');
+    const toggleBranchButton = document.getElementById('toggleBranchBtn');
+    const showA1Button = document.getElementById('showA1Btn');
+    const showA2Button = document.getElementById('showA2Btn');
+    const showA3Button = document.getElementById('showA3Btn');
+    const showA4Button = document.getElementById('showA4Btn');
+    const readingDisplay = document.getElementById('readingDisplay');
+
+    // --- State ---
+    let isSwitchClosed = false;
+    let showThirdBranch = false;
+
+    // --- Configuration ---
+    const colors = { wire: '#333', battery: '#888', batteryPlus: '#FF4136', batteryMinus: '#0074D9', bulbOff: '#AAA', bulbOn: '#FFDC00', particle: '#0074D9', switchColor: '#555', ammeterBg: '#90EE90', ammeterText: '#000' };
+    const particleSpeed = 1.5;
+    const particleRadius = 3;
+    const maxParticles = 100;
+    const particleSpawnInterval = 4;
+    const ammeterRadius = 18;
+    const bulbRadius = 15;
+    const branchYSpacing = 75;
+
+    // --- Simulated Physics Values ---
+    const V_battery = 9.0;
+    const R_bulb = 10.0;
+    const R_branch = R_bulb; // Each branch has one bulb
+    let currentA1 = 0, currentA2 = 0, currentA3 = 0, currentA4 = 0;
+
+    function calculateCurrents() {
+        const numActiveBranches = showThirdBranch ? 3 : 2;
+        const R_parallel = R_branch / numActiveBranches; // Simplified parallel resistance calculation
+        const R_total = R_parallel; // Assuming negligible wire resistance
+
+        if (isSwitchClosed && R_total > 0) {
+            currentA1 = V_battery / R_total;
+            const branchCurrent = currentA1 / numActiveBranches; // Current splits equally
+            currentA2 = branchCurrent;
+            currentA3 = branchCurrent;
+            currentA4 = showThirdBranch ? branchCurrent : 0;
+        } else {
+            currentA1 = 0;
+            currentA2 = 0;
+            currentA3 = 0;
+            currentA4 = 0;
+        }
+        updateDisplayedReading(); // Update display whenever currents change
+    }
+    // --- End Simulated Physics ---
+
+    // --- Coordinates ---
+    const topBranchY = 125;
+    const fixed_nj1 = { x: 195, y: topBranchY };                         // Top-left junction
+    const fixed_nj2 = { x: 445, y: topBranchY };                         // Top-right junction
+    const fixed_nj3 = { x: 195, y: topBranchY + branchYSpacing };        // Middle-left junction
+    const fixed_nj4 = { x: 445, y: topBranchY + branchYSpacing };        // Middle-right junction
+    const fixed_nj5 = { x: 195, y: topBranchY + 2 * branchYSpacing };    // Bottom-left junction (for branch 3)
+    const fixed_nj6 = { x: 445, y: topBranchY + 2 * branchYSpacing };    // Bottom-right junction (for branch 3)
+
+    const fixed_nBulbA = { x: 270, y: fixed_nj1.y, radius: bulbRadius }; // Bulb on branch A (top)
+    const fixed_nBulbB = { x: 270, y: fixed_nj3.y, radius: bulbRadius }; // Bulb on branch B (middle)
+    const fixed_nBulbC = { x: 270, y: fixed_nj5.y, radius: bulbRadius }; // Bulb on branch C (bottom)
+
+    const ammeterUpperPos = { x: 370, y: fixed_nj1.y }; // Ammeter A2
+    const ammeterLowerPos = { x: 370, y: fixed_nj3.y }; // Ammeter A3
+    const ammeterNewPos   = { x: 370, y: fixed_nj5.y }; // Ammeter A4 (for branch 3)
+
+    const batteryYoffset = -20;
+    const battery = { x: canvasWidth / 2 - 80, y: 30 + batteryYoffset, width: 40, height: 30 };
+    const batteryPlus = { x: battery.x + battery.width, y: battery.y + battery.height / 2 }; // Wire connection point
+    const batteryMinus = { x: battery.x, y: battery.y + battery.height / 2 };             // Wire connection point
+    // --- *** NEW: Target point inside negative terminal graphic *** ---
+    const batteryMinusTarget = { x: battery.x + 4, y: battery.y + battery.height / 2 }; // Shift 4px right from connection point
+
+    const switchStart = { x: batteryPlus.x + 20, y: batteryPlus.y };
+    const switchEnd = { x: switchStart.x + 50, y: batteryPlus.y };
+    const ammeterTotalPos = { x: switchEnd.x + 35, y: switchEnd.y }; // Ammeter A1
+
+    const inputCorner = { x: fixed_nj2.x, y: ammeterTotalPos.y }; // Top-right corner before branching
+    const returnVerticalBase = { x: fixed_nj1.x, y: batteryMinus.y }; // Base of vertical return wire (aligned with terminal Y)
+
+
+    // --- DYNAMIC Path Generation ---
+    let simplePaths = []; // Holds the current set of paths for particles
+
+    function generatePaths(numBranches) {
+        let paths = []; // Temporary array to build paths
+
+        if (numBranches === 2) {
+             paths = [
+                // --- Main Circuit Path ---
+                /* 0 */ { start: switchEnd,   end: inputCorner, next: [1] },       // From switch to input corner
+                /* 1 */ { start: inputCorner, end: fixed_nj2,   next: [2, 7] },    // Input corner down to first junction split (nj2)
+
+                // --- Branch A ---
+                /* 2 */ { start: fixed_nj2,   end: fixed_nj1,   next: [5] },       // Right junction (nj2) to left junction (nj1) - TOP BRANCH
+
+                // --- Branch B ---
+                /* 3 */ { start: fixed_nj4,   end: fixed_nj3,   next: [4] },       // Right junction (nj4) to left junction (nj3) - MIDDLE BRANCH
+
+                // --- Return Paths (Left Side) ---
+                /* 4 */ { start: fixed_nj3,   end: fixed_nj1,   next: [5] },       // Left junction (nj3) UP to left junction (nj1) - MERGE POINT 1
+                /* 5 */ { start: fixed_nj1,   end: returnVerticalBase, next: [6] },// Left junction (nj1) DOWN towards battery return base
+                /* 6 */ { start: returnVerticalBase, end: batteryMinusTarget, next: [-1] }, // Return base point TO battery (-) terminal - END
+
+                // --- Connection Path (Right Side) ---
+                /* 7 */ { start: fixed_nj2,   end: fixed_nj4,   next: [3] },       // Right junction (nj2) DOWN to right junction (nj4) - Connects Branch A split to Branch B start
+            ];
+
+        } else if (numBranches === 3) {
+             paths = [
+                // --- Main Circuit Path ---
+                /* 0 */ { start: switchEnd,   end: inputCorner, next: [1] },          // From switch to input corner
+                /* 1 */ { start: inputCorner, end: fixed_nj2,   next: [2, 5] },        // Input corner down to first junction split (nj2)
+
+                // --- Branch A ---
+                /* 2 */ { start: fixed_nj2,   end: fixed_nj1,   next: [7] },          // Right junction (nj2) to left junction (nj1) - TOP BRANCH
+
+                // --- Branch B ---
+                /* 3 */ { start: fixed_nj4,   end: fixed_nj3,   next: [8] },          // Right junction (nj4) to left junction (nj3) - MIDDLE BRANCH
+
+                // --- Branch C ---
+                /* 4 */ { start: fixed_nj6,   end: fixed_nj5,   next: [9] },          // Right junction (nj6) to left junction (nj5) - BOTTOM BRANCH
+
+                // --- Connection Paths (Right Side) ---
+                /* 5 */ { start: fixed_nj2,   end: fixed_nj4,   next: [3, 6] },        // Right junction (nj2) DOWN to right junction (nj4) - SPLIT POINT 2
+                /* 6 */ { start: fixed_nj4,   end: fixed_nj6,   next: [4] },          // Right junction (nj4) DOWN to right junction (nj6) - Connects to Branch C
+
+                // --- Return Paths (Left Side) ---
+                /* 7 */ { start: fixed_nj1,   end: returnVerticalBase, next: [10] },      // Left junction (nj1) DOWN towards battery return base - MERGE POINT 1
+                /* 8 */ { start: fixed_nj3,   end: fixed_nj1,   next: [7] },          // Left junction (nj3) UP to left junction (nj1) - MERGE POINT 2
+                /* 9 */ { start: fixed_nj5,   end: fixed_nj3,   next: [8] },          // Left junction (nj5) UP to left junction (nj3) - MERGE POINT 3
+                /*10 */ { start: returnVerticalBase, end: batteryMinusTarget, next: [-1] } // Return base point TO battery (-) terminal - END
+             ];
+        }
+
+        // Clean up null paths and pre-calculate data for valid paths
+        const cleanedPaths = paths.filter(p => p && p.start); // Remove any potentially undefined entries
+        cleanedPaths.forEach(p => {
+            if (p && p.start && p.end) { // Ensure both start and end exist
+                const startX = p.start.x;
+                const startY = p.start.y;
+                const endX = p.end.x;
+                const endY = p.end.y;
+                p.len = Math.hypot(endX - startX, endY - startY) || 0.001; // Calculate length, avoid zero
+                p.dx = (endX - startX) / p.len; // Normalized direction vector x
+                p.dy = (endY - startY) / p.len; // Normalized direction vector y
+            } else if (p) {
+                console.error("Path object missing start or end:", p);
+                // Assign default values to prevent errors later if a bad path slips through
+                p.len = 0.001;
+                p.dx = 0;
+                p.dy = 0;
+            }
+        });
+        return cleanedPaths;
+    }
+    // --- End DYNAMIC Path Generation ---
+
+
+    // --- Particle Management ---
+    let particles = [];
+    let frameCount = 0; // Used for particle spawning interval
+
+    class Particle {
+        constructor() {
+            this.pathIndex = 0; // Start at the first path segment
+            this.posOnPath = 0; // Start at the beginning of the path segment
+            // Initialize position safely, checking if simplePaths is ready
+             if(simplePaths && simplePaths.length > 0 && simplePaths[0] && simplePaths[0].start){
+                this.x = simplePaths[0].start.x;
+                this.y = simplePaths[0].start.y;
+            } else {
+                // Fallback if paths aren't initialized (should not happen with initial setup)
+                this.x = -10; this.y = -10; // Off-screen
+                 console.error("Particle created before simplePaths initialized or simplePaths[0].start is invalid!");
+            }
+        }
+
+        move() {
+             // Check if movement is possible
+             if (!isSwitchClosed || !simplePaths || simplePaths.length === 0 || !simplePaths[this.pathIndex]) {
+                 return false; // Stop moving if switch is open or paths are invalid
+             }
+
+            let currentPath = simplePaths[this.pathIndex];
+             if (!currentPath) {
+                 console.error(`Particle trying to move on invalid path index: ${this.pathIndex}`);
+                 return false; // Stop if current path data is missing
+             }
+
+            this.posOnPath += particleSpeed;
+
+            // Check if particle reached the end of the current path segment
+            if (this.posOnPath >= currentPath.len) {
+                let remainingMove = this.posOnPath - currentPath.len; // How much further it should have moved
+                let nextPathIndices = currentPath.next;
+
+                 // Check if this is the end of the circuit
+                 if (!nextPathIndices || nextPathIndices[0] === -1) {
+                    return false; // Particle reached the battery, remove it
+                 }
+
+                let nextIndex;
+
+                // --- Handle Path Splits ---
+                const split1Index = 1; // Path index for InputCorner -> nj2 split (common to both 2 & 3 branches)
+                const split2Index_3Branch = 5; // Path index for nj2 -> nj4 split (only in 3-branch config)
+
+                if (this.pathIndex === split1Index && nextPathIndices.length > 1) {
+                     // First split: Choose between Branch A or continuing down the right side
+                     nextIndex = randomChoice(nextPathIndices);
+                 } else if (showThirdBranch && this.pathIndex === split2Index_3Branch && nextPathIndices.length > 1) {
+                     // Second split (only in 3-branch): Choose between Branch B or continuing down to Branch C
+                     nextIndex = randomChoice(nextPathIndices);
+                 } else {
+                     // Standard Path Following or Merge Point: Just take the first (usually only) option
+                     nextIndex = nextPathIndices[0];
+                 }
+
+                 // Validate the chosen next path index
+                 if (nextIndex === undefined || nextIndex < 0 || nextIndex >= simplePaths.length || !simplePaths[nextIndex]) {
+                    console.warn(`Invalid next path index calculated: ${nextIndex} from path ${this.pathIndex}. Particle removing.`);
+                    return false; // Remove particle if next path is invalid
+                 }
+
+                // Transition to the next path segment
+                this.pathIndex = nextIndex;
+                this.posOnPath = remainingMove; // Start on the new path with remaining movement
+                currentPath = simplePaths[this.pathIndex]; // Get the new current path data
+
+                // Final check on the new path
+                 if (!currentPath) {
+                     console.error(`Current path became invalid after index update to: ${this.pathIndex}. Particle removing.`);
+                     return false;
+                 }
+            }
+
+            // Calculate the new x, y position on the current path
+             // Ensure currentPath and its properties are valid before calculation
+             if (currentPath && currentPath.start && typeof currentPath.dx === 'number' && typeof currentPath.dy === 'number') {
+                 this.x = currentPath.start.x + currentPath.dx * this.posOnPath;
+                 this.y = currentPath.start.y + currentPath.dy * this.posOnPath;
+             } else {
+                 console.error(`Invalid currentPath data during position calculation for path index ${this.pathIndex}. Particle removing.`);
+                 return false; // Remove if path data is bad
+             }
+
+            return true; // Particle moved successfully
+        }
+
+        draw(ctx) {
+            ctx.fillStyle = colors.particle;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, particleRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // Utility function to randomly choose from an array
+    function randomChoice(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+
+    // --- Drawing Functions ---
+    function drawBattery(ctx) {
+        // Base rectangle
+        ctx.fillStyle = colors.battery;
+        ctx.fillRect(battery.x, battery.y, battery.width, battery.height);
+
+        // Terminals (simple rectangles)
+        ctx.fillStyle = colors.batteryPlus;
+        ctx.fillRect(battery.x + battery.width - 5, battery.y - 5, 10, battery.height + 10); // Positive terminal
+        ctx.fillStyle = colors.batteryMinus;
+        ctx.fillRect(battery.x - 5, battery.y - 5, 10, battery.height + 10); // Negative terminal
+
+        // Labels
+        ctx.fillStyle = '#000'; // Black text
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelY = (battery.y + battery.height / 2); // Centered vertically
+        ctx.fillText('+', battery.x + battery.width + 15, labelY); // '+' label to the right
+        ctx.fillText('-', battery.x - 15, labelY);             // '-' label to the left
+    }
+
+    function drawSwitch(ctx) {
+        const r = 4; // Radius of connection points
+        ctx.strokeStyle = colors.switchColor;
+        ctx.fillStyle = colors.switchColor;
+        ctx.lineWidth = 3;
+
+        // Draw connection points
+        ctx.beginPath();
+        ctx.arc(switchStart.x, switchStart.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(switchEnd.x, switchEnd.y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw the switch arm
+        ctx.beginPath();
+        ctx.moveTo(switchStart.x, switchStart.y);
+        if (isSwitchClosed) {
+            ctx.lineTo(switchEnd.x, switchEnd.y); // Closed path
+        } else {
+            // Open path - angled slightly up
+            const openLength = switchEnd.x - switchStart.x;
+            ctx.lineTo(switchStart.x + openLength * 0.8, switchStart.y - openLength * 0.3);
+        }
+        ctx.stroke();
+    }
+
+    function drawBulb(ctx, bulbInfo, isLit) {
+         const actualLitState = isSwitchClosed && isLit; // Bulb only lit if switch is closed AND it should be lit
+
+        // Draw bulb circle
+        ctx.fillStyle = actualLitState ? colors.bulbOn : colors.bulbOff;
+        ctx.beginPath();
+        ctx.arc(bulbInfo.x, bulbInfo.y, bulbInfo.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw outline
+        ctx.strokeStyle = colors.wire; // Use wire color for outline
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw filament 'X'
+        const br = bulbInfo.radius * 0.5; // Size relative to bulb radius
+        ctx.beginPath();
+        ctx.moveTo(bulbInfo.x - br, bulbInfo.y - br);
+        ctx.lineTo(bulbInfo.x + br, bulbInfo.y + br);
+        ctx.moveTo(bulbInfo.x + br, bulbInfo.y - br);
+        ctx.lineTo(bulbInfo.x - br, bulbInfo.y + br);
+        ctx.stroke();
+    }
+
+    function drawAmmeter(ctx, pos, label) {
+        // Background circle
+        ctx.fillStyle = colors.ammeterBg;
+        ctx.strokeStyle = colors.wire; // Outline color
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, ammeterRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Text label ('A1', 'A2', etc.)
+        ctx.fillStyle = colors.ammeterText;
+        // Adjust font size slightly if label is longer (e.g., "A10") - though not needed here
+        const fontSize = label.length > 1 ? ammeterRadius * 0.75 : ammeterRadius * 0.9;
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, pos.x, pos.y + 1); // Slight vertical offset for better centering
+    }
+
+    function drawWires(ctx) {
+        ctx.strokeStyle = colors.wire;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+
+        // Battery (+) to Switch Start
+        ctx.moveTo(batteryPlus.x, batteryPlus.y);
+        ctx.lineTo(switchStart.x, switchStart.y);
+
+        // Switch End to Ammeter A1 (left side)
+        ctx.moveTo(switchEnd.x, switchEnd.y);
+        ctx.lineTo(ammeterTotalPos.x - ammeterRadius, ammeterTotalPos.y);
+
+        // Ammeter A1 (right side) to Input Corner
+        ctx.moveTo(ammeterTotalPos.x + ammeterRadius, ammeterTotalPos.y);
+        ctx.lineTo(inputCorner.x, inputCorner.y);
+
+        // Input Corner down to Top-Right Junction (nj2)
+        ctx.lineTo(fixed_nj2.x, fixed_nj2.y);
+
+        // --- Branch A Wires ---
+        // Top-Right Junction (nj2) to Bulb A (left side)
+        ctx.moveTo(fixed_nj2.x, fixed_nj2.y);
+        ctx.lineTo(fixed_nBulbA.x - fixed_nBulbA.radius, fixed_nBulbA.y);
+        // Bulb A (right side) to Ammeter A2 (left side)
+        ctx.moveTo(fixed_nBulbA.x + fixed_nBulbA.radius, fixed_nBulbA.y);
+        ctx.lineTo(ammeterUpperPos.x - ammeterRadius, ammeterUpperPos.y);
+        // Ammeter A2 (right side) to Top-Left Junction (nj1)
+        ctx.moveTo(ammeterUpperPos.x + ammeterRadius, ammeterUpperPos.y);
+        ctx.lineTo(fixed_nj1.x, fixed_nj1.y);
+
+        // --- Right Vertical Wire 1 ---
+        // Top-Right Junction (nj2) down to Middle-Right Junction (nj4)
+        ctx.moveTo(fixed_nj2.x, fixed_nj2.y);
+        ctx.lineTo(fixed_nj4.x, fixed_nj4.y);
+
+        // --- Branch B Wires ---
+        // Middle-Right Junction (nj4) to Bulb B (left side)
+        ctx.moveTo(fixed_nj4.x, fixed_nj4.y);
+        ctx.lineTo(fixed_nBulbB.x - fixed_nBulbB.radius, fixed_nBulbB.y);
+        // Bulb B (right side) to Ammeter A3 (left side)
+        ctx.moveTo(fixed_nBulbB.x + fixed_nBulbB.radius, fixed_nBulbB.y);
+        ctx.lineTo(ammeterLowerPos.x - ammeterRadius, ammeterLowerPos.y);
+        // Ammeter A3 (right side) to Middle-Left Junction (nj3)
+        ctx.moveTo(ammeterLowerPos.x + ammeterRadius, ammeterLowerPos.y);
+        ctx.lineTo(fixed_nj3.x, fixed_nj3.y);
+
+        // --- Left Vertical Wire 1 ---
+        // Middle-Left Junction (nj3) up to Top-Left Junction (nj1)
+        ctx.moveTo(fixed_nj3.x, fixed_nj3.y);
+        ctx.lineTo(fixed_nj1.x, fixed_nj1.y);
+
+        // --- Optional Third Branch ---
+        if (showThirdBranch) {
+            // --- Right Vertical Wire 2 ---
+            // Middle-Right Junction (nj4) down to Bottom-Right Junction (nj6)
+            ctx.moveTo(fixed_nj4.x, fixed_nj4.y);
+            ctx.lineTo(fixed_nj6.x, fixed_nj6.y);
+
+            // --- Branch C Wires ---
+            // Bottom-Right Junction (nj6) to Bulb C (left side)
+            ctx.moveTo(fixed_nj6.x, fixed_nj6.y);
+            ctx.lineTo(fixed_nBulbC.x - fixed_nBulbC.radius, fixed_nBulbC.y);
+            // Bulb C (right side) to Ammeter A4 (left side)
+            ctx.moveTo(fixed_nBulbC.x + fixed_nBulbC.radius, fixed_nBulbC.y);
+            ctx.lineTo(ammeterNewPos.x - ammeterRadius, ammeterNewPos.y);
+            // Ammeter A4 (right side) to Bottom-Left Junction (nj5)
+            ctx.moveTo(ammeterNewPos.x + ammeterRadius, ammeterNewPos.y);
+            ctx.lineTo(fixed_nj5.x, fixed_nj5.y);
+
+            // --- Left Vertical Wire 2 ---
+            // Bottom-Left Junction (nj5) up to Middle-Left Junction (nj3)
+            ctx.moveTo(fixed_nj5.x, fixed_nj5.y);
+            ctx.lineTo(fixed_nj3.x, fixed_nj3.y);
+        }
+
+        // --- Final Return Path ---
+        // Top-Left Junction (nj1) down to Return Base Point
+        ctx.moveTo(fixed_nj1.x, fixed_nj1.y);
+        ctx.lineTo(returnVerticalBase.x, returnVerticalBase.y);
+        // Return Base Point to Battery (-) Connection Point
+        ctx.lineTo(batteryMinus.x, batteryMinus.y); // Visual connection uses batteryMinus
+
+        ctx.stroke(); // Draw all paths defined above
+    }
+    // Note: drawWires visually connects to batteryMinus for the graphic,
+    // but particle path logic uses batteryMinusTarget to end *inside* the graphic.
+
+    // --- Button Control ---
+    toggleButton.addEventListener('click', () => {
+        isSwitchClosed = !isSwitchClosed;
+        toggleButton.textContent = isSwitchClosed ? 'Open Switch' : 'Close Switch';
+        if (!isSwitchClosed) {
+            // Clear particles when switch is opened
+            particles = [];
+            frameCount = 0; // Reset spawn counter
+        }
+        calculateCurrents(); // Recalculate (will be 0 if open)
+        // No redraw needed here, animation loop handles it
+    });
+
+    toggleBranchButton.addEventListener('click', () => {
+        showThirdBranch = !showThirdBranch;
+        // Regenerate paths based on the new branch state
+        simplePaths = generatePaths(showThirdBranch ? 3 : 2);
+        particles = []; // Clear existing particles
+        frameCount = 0;   // Reset spawn counter
+
+        if (showThirdBranch) {
+            toggleBranchButton.textContent = "Remove Third Branch";
+            showA4Button.classList.remove('hidden'); // Show A4 button
+        } else {
+            toggleBranchButton.textContent = "Add Third Branch";
+            showA4Button.classList.add('hidden');    // Hide A4 button
+             // If A4 was being displayed, clear the reading display
+             if (displayedReadingLabel === 'A4') {
+                 displayedReadingLabel = '';
+                 readingDisplay.textContent = "Click a button to see the reading.";
+             }
+        }
+        calculateCurrents(); // Recalculate currents for the new configuration
+        redrawStaticComponents(); // Force immediate redraw for visual update
+    });
+
+
+    // --- Ammeter Reading Button Listeners ---
+    let displayedReadingLabel = ''; // Track which ammeter reading is currently shown
+
+    function showReading(label, value) {
+        if (isSwitchClosed) {
+            readingDisplay.textContent = `${label} Reading: ${value.toFixed(2)} A`;
+        } else {
+             // Show 0 current if switch is open, but indicate which ammeter was clicked
+             readingDisplay.textContent = `${label} Reading: Switch is open (0.00 A)`;
+        }
+        displayedReadingLabel = label; // Remember which button was clicked
+    }
+
+    // Function to update the text display if the current reading needs refreshing (e.g., after opening switch)
+    function updateDisplayedReading() {
+        // Check if a reading is currently supposed to be displayed
+        if (!displayedReadingLabel) {
+             readingDisplay.textContent = isSwitchClosed ? "Click a button to see the reading." : "Switch is open. Click a button to see the reading.";
+            return;
+        }
+
+        // Refresh the currently selected reading based on the latest current values
+        switch(displayedReadingLabel) {
+            case 'A1':
+                showReading('A1', currentA1);
+                break;
+            case 'A2':
+                showReading('A2', currentA2);
+                break;
+            case 'A3':
+                showReading('A3', currentA3);
+                break;
+            case 'A4':
+                 // Only show A4 reading if the third branch exists and A4 is selected
+                 if (showThirdBranch && displayedReadingLabel === 'A4') {
+                    showReading('A4', currentA4);
+                 } else if (!showThirdBranch && displayedReadingLabel === 'A4') {
+                     // If third branch was removed while A4 was shown, clear the display
+                     displayedReadingLabel = '';
+                     readingDisplay.textContent = "Click a button to see the reading.";
+                 }
+                break;
+            default:
+                 // Should not happen, but reset if label is invalid
+                 displayedReadingLabel = '';
+                 readingDisplay.textContent = "Click a button to see the reading.";
+                break;
+        }
+
+         // Override display text if switch is open, regardless of calculation
+         if (!isSwitchClosed && displayedReadingLabel) {
+             showReading(displayedReadingLabel, 0); // Sets the text to "... Reading: Switch is open (0.00 A)"
+         }
+    }
+
+
+    // Assign listeners to ammeter buttons
+    showA1Button.addEventListener('click', () => showReading('A1', currentA1));
+    showA2Button.addEventListener('click', () => showReading('A2', currentA2));
+    showA3Button.addEventListener('click', () => showReading('A3', currentA3));
+    showA4Button.addEventListener('click', () => {
+        // Only show A4 reading if the third branch is active
+        if (showThirdBranch) {
+            showReading('A4', currentA4);
+        }
+    });
+
+     // --- Main Drawing Function ---
+     // Redraws everything except particles (static components + bulbs based on particle proximity)
+    function redrawStaticComponents() {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight); // Clear canvas
+
+        // Determine bulb lit states based on proximity (simplistic)
+        // A bulb is considered 'lit' if any particle is close to its center.
+        let bulbA_isLit = false;
+        let bulbB_isLit = false;
+        let bulbC_isLit = false;
+
+        if (isSwitchClosed && particles.length > 0) {
+             // Check proximity for Bulb A
+             bulbA_isLit = particles.some(p => Math.hypot(p.x - fixed_nBulbA.x, p.y - fixed_nBulbA.y) < fixed_nBulbA.radius + 15); // Slightly larger radius for detection
+             // Check proximity for Bulb B
+             bulbB_isLit = particles.some(p => Math.hypot(p.x - fixed_nBulbB.x, p.y - fixed_nBulbB.y) < fixed_nBulbB.radius + 15);
+             // Check proximity for Bulb C (only if it exists)
+             if (showThirdBranch) {
+                 bulbC_isLit = particles.some(p => Math.hypot(p.x - fixed_nBulbC.x, p.y - fixed_nBulbC.y) < fixed_nBulbC.radius + 15);
+             }
+         }
+
+        // Draw components in order (background to foreground)
+        drawWires(ctx);
+        drawBattery(ctx);
+        drawSwitch(ctx);
+        drawBulb(ctx, fixed_nBulbA, bulbA_isLit);
+        drawBulb(ctx, fixed_nBulbB, bulbB_isLit);
+        if (showThirdBranch) {
+            drawBulb(ctx, fixed_nBulbC, bulbC_isLit);
+        }
+        drawAmmeter(ctx, ammeterTotalPos, 'A1');
+        drawAmmeter(ctx, ammeterUpperPos, 'A2');
+        drawAmmeter(ctx, ammeterLowerPos, 'A3');
+        if (showThirdBranch) {
+            drawAmmeter(ctx, ammeterNewPos, 'A4');
+        }
+
+        // Particles are drawn in the animation loop after static components
+    }
+
+
+    // --- Animation Loop ---
+    function animationLoop() {
+         // Spawn new particles periodically if switch is closed
+         if (isSwitchClosed) {
+            frameCount++;
+             if (frameCount >= particleSpawnInterval && particles.length < maxParticles && simplePaths && simplePaths.length > 0) {
+                frameCount = 0; // Reset counter
+                particles.push(new Particle()); // Add a new particle
+            }
+        }
+
+        // Move existing particles and collect indices of those that reached the end
+        const particlesToRemove = [];
+        particles.forEach((p, index) => {
+            const keep = p.move(); // move() returns false if particle should be removed
+            if (!keep) {
+                particlesToRemove.push(index);
+            }
+        });
+
+        // Remove particles marked for removal (iterate backwards to avoid index issues)
+        for (let i = particlesToRemove.length - 1; i >= 0; i--) {
+            particles.splice(particlesToRemove[i], 1);
+        }
+
+        // Redraw static components (wires, battery, bulbs based on new proximity, etc.)
+        redrawStaticComponents();
+
+        // Draw remaining particles on top
+        particles.forEach(p => p.draw(ctx));
+
+        // Request the next frame
+        requestAnimationFrame(animationLoop);
+    }
+
+    // --- Initial Setup ---
+    simplePaths = generatePaths(showThirdBranch ? 3 : 2); // Generate initial paths for 2 branches
+    calculateCurrents();          // Calculate initial currents (will be 0)
+    updateDisplayedReading();     // Update the display text
+    redrawStaticComponents();     // Perform the initial draw of the static circuit
+
+    // Start the animation loop only if path generation was successful
+     if (simplePaths && simplePaths.length > 0) {
+         animationLoop();
+     } else {
+         // Display an error message on the canvas if paths failed to initialize
+         console.error("Failed to initialize simplePaths during setup.");
+         ctx.fillStyle = 'red';
+         ctx.font = '16px sans-serif';
+         ctx.textAlign = 'center';
+         ctx.fillText("Error initializing circuit paths. Check console.", canvasWidth / 2, canvasHeight / 2);
+     }
+
+</script>
+
+</body>
+</html>

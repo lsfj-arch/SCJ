@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Circuit - Yellow Bulbs</title> <style>
+        body { margin: 20px; font-family: sans-serif; background-color: #f0f0f0; text-align: center;}
+        canvas { border: 1px solid black; background-color: white; margin-bottom: 10px; }
+        button { padding: 10px 15px; font-size: 1em; cursor: pointer; margin: 5px;}
+        #readings { margin-top: 15px; font-size: 1.1em; font-weight: bold; min-height: 1.5em;}
+        p { margin-top: 10px;}
+        #rheostatControl { margin-top: 15px; }
+        #rheostatControl label { margin-right: 10px; }
+        #rheostatSlider { width: 200px; cursor: pointer; vertical-align: middle;}
+        #resistanceValue { font-weight: bold; margin-left: 5px; min-width: 40px; display: inline-block;}
+        /* Style for the code display area */
+        #codeDisplayContainer {
+            margin-top: 20px;
+            text-align: left;
+            max-height: 400px; /* Limit height */
+            overflow-y: auto; /* Add scrollbar if needed */
+            border: 1px solid #ccc;
+            background-color: #e9e9e9;
+            padding: 10px;
+            display: none; /* Initially hidden */
+        }
+        #codeDisplayContainer pre {
+            margin: 0;
+            white-space: pre-wrap; /* Wrap long lines */
+            word-break: break-all; /* Break long words/strings */
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+    </style>
+</head>
+<body>
+
+<h1>Parallel Circuit Animation - Yellow Bulbs</h1> <canvas id="circuitCanvas" width="600" height="400"></canvas>
+<br>
+<button id="toggleSwitchBtn">Close Switch</button>
+<p>Bulb intensity increases as current increases (Yellow). Off bulbs are white. Ammeters labeled.</p> <div id="rheostatControl">
+    <label for="rheostatSlider">Rheostat Resistance:</label>
+    <input type="range" id="rheostatSlider" min="0" max="100" value="50">
+    <span id="resistanceValue">50</span>%
+</div>
+
+<div id="readings">Readings: ---</div>
+
+<button id="displayCodeBtn">Display Coding</button>
+
+<div id="codeDisplayContainer">
+    <pre><code id="codeContent"></code></pre>
+</div>
+
+
+<script>
+    const canvas = document.getElementById('circuitCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const toggleButton = document.getElementById('toggleSwitchBtn');
+    const readingDisplay = document.getElementById('readings');
+    const rheostatSlider = document.getElementById('rheostatSlider');
+    const resistanceValueSpan = document.getElementById('resistanceValue');
+    const displayCodeButton = document.getElementById('displayCodeBtn');
+    const codeDisplayContainer = document.getElementById('codeDisplayContainer');
+    const codeContentElement = document.getElementById('codeContent');
+
+
+    // --- State ---
+    let isSwitchClosed = false;
+    let rheostatSetting = parseInt(rheostatSlider.value);
+    let isCodeDisplayed = false;
+
+    // --- Base Reading Values (at minimum resistance, 0%) ---
+    const baseReadingA1 = 1.5;
+    const baseReadingA2 = 0.75; // Max current for branch bulbs
+    const baseReadingA3 = 0.75;
+    const minCurrentFactor = 0.2;
+    const minBranchCurrent = baseReadingA2 * minCurrentFactor; // Min current for bulb 'on' state
+
+    // --- Dynamically calculated values ---
+    let readingValueA1 = baseReadingA1;
+    let readingValueA2 = baseReadingA2;
+    let readingValueA3 = baseReadingA3;
+    let particleSpawnInterval = 5;
+
+    // Function to update simulation parameters AND DISPLAY based on resistance/switch state
+    function updateSimulationParameters() {
+        rheostatSetting = parseInt(rheostatSlider.value);
+        resistanceValueSpan.textContent = rheostatSetting;
+
+        // Calculate Particle Spawn Interval (Visual effect)
+        const minInterval = 3;
+        const maxInterval = 15;
+        particleSpawnInterval = Math.round(minInterval + (maxInterval - minInterval) * (rheostatSetting / 100));
+
+        // Calculate Theoretical Ammeter Readings based on resistance
+        const scaleFactor = 1 - (1 - minCurrentFactor) * (rheostatSetting / 100);
+        readingValueA1 = baseReadingA1 * scaleFactor;
+        readingValueA2 = baseReadingA2 * scaleFactor;
+        readingValueA3 = baseReadingA3 * scaleFactor;
+
+        // Update Reading Display
+        if (isSwitchClosed) {
+            readingDisplay.textContent = `Readings: A1=${readingValueA1.toFixed(2)}A, A2=${readingValueA2.toFixed(2)}A, A3=${readingValueA3.toFixed(2)}A`;
+        } else {
+            readingDisplay.textContent = "Readings: Switch Open (0.00 A)";
+        }
+    }
+
+
+    // --- Configuration ---
+    const colors = { wire: '#333', battery: '#888', batteryPlus: '#FF4136', batteryMinus: '#0074D9', bulbOff: '#FFFFFF', particle: '#0074D9', switchColor: '#555', rheostatColor: '#444', ammeterColor: '#2ECC40' };
+    const particleSpeed = 1.5;
+    const particleRadius = 3;
+    const maxParticles = 100;
+
+    // --- Coordinates and Geometry (Unchanged) ---
+    const fixed_nj1 = { x: 195, y: 125 }; const fixed_nj2 = { x: 445, y: 125 }; const fixed_nj3 = { x: 195, y: 225 }; const fixed_nj4 = { x: 445, y: 225 };
+    const ammeterWidth = 30; const ammeterRadius = ammeterWidth / 2; const ammeterSpacing = 40;
+    const fixed_nAmmeterA = { x: fixed_nj2.x - ammeterSpacing - ammeterWidth / 2, y: fixed_nj1.y, radius: ammeterRadius }; const fixed_nBulbA = { x: (fixed_nj1.x + fixed_nAmmeterA.x - fixed_nAmmeterA.radius) / 2, y: fixed_nj1.y, radius: 15 };
+    const fixed_nAmmeterB = { x: fixed_nj4.x - ammeterSpacing - ammeterWidth / 2, y: fixed_nj3.y, radius: ammeterRadius }; const fixed_nBulbB = { x: (fixed_nj3.x + fixed_nAmmeterB.x - fixed_nAmmeterB.radius) / 2, y: fixed_nj3.y, radius: 15 };
+    const batteryShift = 40; const battery = { x: canvasWidth / 2 - 120 + batteryShift, y: 30, width: 40, height: 30 }; const batteryPlus = { x: battery.x + battery.width, y: battery.y + battery.height / 2 }; const batteryMinus = { x: battery.x, y: battery.y + battery.height / 2 };
+    const switchXoffset = 20; const switchLength = 30; const switchStart = { x: batteryPlus.x + switchXoffset, y: batteryPlus.y }; const switchEnd = { x: switchStart.x + switchLength, y: batteryPlus.y };
+    const rheoXOffset = 15; const rheoWidth = 40; const rheoHeight = 20; const rheoX = switchEnd.x + rheoXOffset; const rheoY = switchEnd.y - rheoHeight / 2; const rheoInputPoint = { x: rheoX, y: switchEnd.y }; const rheoOutputPoint = { x: rheoX + rheoWidth, y: switchEnd.y };
+    const mainAmmSpacing = 10; const fixed_nAmmeterMain = { x: rheoOutputPoint.x + mainAmmSpacing + ammeterRadius, y: rheoOutputPoint.y, radius: ammeterRadius }; const ammMain_in = { x: fixed_nAmmeterMain.x - ammeterRadius, y: fixed_nAmmeterMain.y }; const ammMain_out = { x: fixed_nAmmeterMain.x + ammeterRadius, y: fixed_nAmmeterMain.y };
+    const inputCorner = { x: fixed_nj2.x, y: ammMain_out.y }; const returnCorner = { x: fixed_nj1.x, y: batteryMinus.y };
+
+    // --- PATH DEFINITIONS (Unchanged) ---
+    const ammA_in = { x: fixed_nAmmeterA.x + fixed_nAmmeterA.radius, y: fixed_nAmmeterA.y }; const ammA_out = { x: fixed_nAmmeterA.x - fixed_nAmmeterA.radius, y: fixed_nAmmeterA.y };
+    const ammB_in = { x: fixed_nAmmeterB.x + fixed_nAmmeterB.radius, y: fixed_nAmmeterB.y }; const ammB_out = { x: fixed_nAmmeterB.x - fixed_nAmmeterB.radius, y: fixed_nAmmeterB.y };
+    const bulbA_start = { x: fixed_nBulbA.x + fixed_nBulbA.radius + 5, y: fixed_nBulbA.y }; const bulbA_end = { x: fixed_nBulbA.x - fixed_nBulbA.radius - 5, y: fixed_nBulbA.y };
+    const bulbB_start = { x: fixed_nBulbB.x + fixed_nBulbB.radius + 5, y: fixed_nBulbB.y }; const bulbB_end = { x: fixed_nBulbB.x - fixed_nBulbB.radius - 5, y: fixed_nBulbB.y };
+
+    const finalPaths = [ /* ... same path definitions ... */ { start: batteryPlus,    end: switchStart,     next: null }, { start: switchEnd,      end: rheoInputPoint,  next: [2] }, { start: rheoOutputPoint,end: ammMain_in,      next: [14] }, { start: inputCorner,    end: fixed_nj2,       next: [4, 9] }, { start: fixed_nj2,      end: ammA_in,         next: [5] }, { start: ammA_out,       end: bulbA_start,     next: [6] }, { start: bulbA_end,      end: fixed_nj1,       next: [7] }, { start: fixed_nj1,      end: returnCorner,    next: [8] }, { start: returnCorner,   end: batteryMinus,    next: [-1] }, { start: fixed_nj2,      end: fixed_nj4,       next: [10] }, { start: fixed_nj4,      end: ammB_in,         next: [11] }, { start: ammB_out,       end: bulbB_start,     next: [12] }, { start: bulbB_end,      end: fixed_nj3,       next: [13] }, { start: fixed_nj3,      end: fixed_nj1,       next: [7] }, { start: ammMain_out,    end: inputCorner,     next: [3] } ];
+    finalPaths.forEach(p => { /* Calculate lengths/vectors */ if (p) { p.len = Math.hypot(p.end.x - p.start.x, p.end.y - p.start.y) || 0.001; p.dx = (p.end.x - p.start.x) / p.len; p.dy = (p.end.y - p.start.y) / p.len; } });
+
+    // --- Particle Management ---
+    let particles = [];
+    let frameCount = 0;
+
+    class Particle {
+        constructor() { /* ... same ... */ this.pathIndex = 1; this.posOnPath = 0; const startPath = finalPaths[this.pathIndex]; if(startPath){ this.x = startPath.start.x; this.y = startPath.start.y; } else { this.x = switchEnd.x; this.y = switchEnd.y; console.error("Particle start path invalid."); } }
+        move() { /* ... same movement logic ... */ if (!isSwitchClosed) return false; let currentPath = finalPaths[this.pathIndex]; if (!currentPath) { console.error("Undefined path at index:", this.pathIndex); return false; } this.posOnPath += particleSpeed; if (this.posOnPath >= currentPath.len) { let remainingMove = this.posOnPath - currentPath.len; let nextPathIndices = currentPath.next; if (!nextPathIndices || nextPathIndices[0] === -1) { return false; } let nextIndex; if (nextPathIndices.length > 1) { if (this.pathIndex === 3) { nextIndex = randomChoice(nextPathIndices); } else { console.warn("Unexpected branching at path:", this.pathIndex); nextIndex = nextPathIndices[0]; } } else { nextIndex = nextPathIndices[0]; } if (finalPaths[nextIndex] === undefined) { console.error("Next path undefined:", nextIndex, "from path:", this.pathIndex); return false; } this.pathIndex = nextIndex; this.posOnPath = remainingMove; currentPath = finalPaths[this.pathIndex]; if (!currentPath) { console.error("Path invalid after index update:", this.pathIndex); return false; } } this.x = currentPath.start.x + currentPath.dx * this.posOnPath; this.y = currentPath.start.y + currentPath.dy * this.posOnPath; return true; }
+        draw(ctx) { /* ... same ... */ ctx.fillStyle = colors.particle; ctx.beginPath(); ctx.arc(this.x, this.y, particleRadius, 0, Math.PI * 2); ctx.fill(); }
+    }
+
+    function randomChoice(arr) { /* ... same ... */ return arr[Math.floor(Math.random() * arr.length)]; }
+
+    // --- Drawing Functions ---
+    function drawBattery(ctx) { /* ... same ... */ ctx.fillStyle = colors.battery; ctx.fillRect(battery.x, battery.y, battery.width, battery.height); ctx.fillStyle = colors.batteryPlus; ctx.fillRect(battery.x + battery.width - 5, battery.y - 5, 10, battery.height + 10); ctx.fillStyle = colors.batteryMinus; ctx.fillRect(battery.x - 5, battery.y - 5, 10, battery.height + 10); ctx.fillStyle = '#000'; ctx.font = '18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('+', battery.x + battery.width + 18, battery.y + battery.height / 2); ctx.fillText('-', battery.x - 18, battery.y + battery.height / 2); }
+    function drawWires(ctx) { /* ... same ... */ ctx.strokeStyle = colors.wire; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(batteryPlus.x, batteryPlus.y); ctx.lineTo(switchStart.x, switchStart.y); ctx.moveTo(switchEnd.x, switchEnd.y); ctx.lineTo(rheoInputPoint.x, rheoInputPoint.y); ctx.moveTo(rheoOutputPoint.x, rheoOutputPoint.y); ctx.lineTo(ammMain_in.x, ammMain_in.y); ctx.moveTo(ammMain_out.x, ammMain_out.y); ctx.lineTo(inputCorner.x, inputCorner.y); ctx.lineTo(fixed_nj2.x, fixed_nj2.y); ctx.moveTo(fixed_nj2.x, fixed_nj2.y); ctx.lineTo(ammA_in.x, ammA_in.y); ctx.moveTo(ammA_out.x, ammA_out.y); ctx.lineTo(bulbA_start.x, bulbA_start.y); ctx.moveTo(bulbA_end.x, bulbA_end.y); ctx.lineTo(fixed_nj1.x, fixed_nj1.y); ctx.moveTo(fixed_nj2.x, fixed_nj2.y); ctx.lineTo(fixed_nj4.x, fixed_nj4.y); ctx.lineTo(ammB_in.x, ammB_in.y); ctx.moveTo(ammB_out.x, ammB_out.y); ctx.lineTo(bulbB_start.x, bulbB_start.y); ctx.moveTo(bulbB_end.x, bulbB_end.y); ctx.lineTo(fixed_nj3.x, fixed_nj3.y); ctx.lineTo(fixed_nj1.x, fixed_nj1.y); ctx.moveTo(fixed_nj1.x, fixed_nj1.y); ctx.lineTo(returnCorner.x, returnCorner.y); ctx.lineTo(batteryMinus.x, batteryMinus.y); ctx.stroke(); }
+    function drawSwitch(ctx) { /* ... same ... */ const r = 4; ctx.strokeStyle = colors.switchColor; ctx.fillStyle = colors.switchColor; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(switchStart.x, switchStart.y, r, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(switchEnd.x, switchEnd.y, r, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.moveTo(switchStart.x, switchStart.y); if (isSwitchClosed) { ctx.lineTo(switchEnd.x, switchEnd.y); } else { const openLength = switchEnd.x - switchStart.x; ctx.lineTo(switchStart.x + openLength * 0.8, switchStart.y - openLength * 0.3); } ctx.stroke(); }
+
+    // --- drawBulb Function (Changed to Yellow RGB Interpolation) ---
+    function drawBulb(ctx, bulbInfo, current) {
+        let fillColor = colors.bulbOff; // Default: white when off
+
+        // Define RGB colors for dimmest and brightest YELLOW states
+        const dimYellow = { r: 100, g: 100, b: 0 };   // Dim yellow
+        const brightYellow = { r: 255, g: 255, b: 0 }; // Bright yellow
+
+        // Define the current range
+        const maxCurrent = baseReadingA2;
+        const minCurrent = minBranchCurrent;
+
+        if (isSwitchClosed && current >= minCurrent) {
+            // Calculate brightness factor (0 to 1)
+            const currentRange = maxCurrent - minCurrent;
+            let brightnessFactor = 0;
+            if (currentRange > 0.001) {
+                 brightnessFactor = (current - minCurrent) / currentRange;
+            } else if (current >= maxCurrent) {
+                 brightnessFactor = 1;
+            }
+            brightnessFactor = Math.max(0, Math.min(1, brightnessFactor)); // Clamp 0-1
+
+            // Interpolate RGB values for yellow
+            // Higher factor -> brighter yellow (closer to 255, 255, 0)
+            const r = dimYellow.r + (brightYellow.r - dimYellow.r) * brightnessFactor;
+            const g = dimYellow.g + (brightYellow.g - dimYellow.g) * brightnessFactor;
+            const b = 0; // Stays 0 for yellow
+
+            // Construct the RGB color string
+            fillColor = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+
+        } else {
+            // Use the off color if switch open or current too low
+            fillColor = colors.bulbOff;
+        }
+
+        // Draw the bulb circle
+        ctx.fillStyle = fillColor;
+        ctx.beginPath();
+        ctx.arc(bulbInfo.x, bulbInfo.y, bulbInfo.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw outline and filament
+        ctx.strokeStyle = colors.wire;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        const br = bulbInfo.radius * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(bulbInfo.x - br, bulbInfo.y - br);
+        ctx.lineTo(bulbInfo.x + br, bulbInfo.y + br);
+        ctx.moveTo(bulbInfo.x + br, bulbInfo.y - br);
+        ctx.lineTo(bulbInfo.x - br, bulbInfo.y + br);
+        ctx.stroke();
+    }
+
+    function drawRheostat(ctx) { /* ... same ... */ ctx.strokeStyle = colors.rheostatColor; ctx.lineWidth = 2; ctx.beginPath(); ctx.rect(rheoX, rheoY, rheoWidth, rheoHeight); ctx.stroke(); const arrowMargin = 5; const startX = rheoX - arrowMargin; const startY = rheoY + rheoHeight + arrowMargin; const endX = rheoX + rheoWidth + arrowMargin; const endY = rheoY - arrowMargin; ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY); const arrowSize = 6; const angle = Math.atan2(endY - startY, endX - startX); ctx.lineTo(endX - arrowSize * Math.cos(angle - Math.PI / 6), endY - arrowSize * Math.sin(angle - Math.PI / 6)); ctx.moveTo(endX, endY); ctx.lineTo(endX - arrowSize * Math.cos(angle + Math.PI / 6), endY - arrowSize * Math.sin(angle + Math.PI / 6)); ctx.stroke(); }
+    function drawAmmeter(ctx, ammeterInfo, label) { /* ... same ... */ ctx.strokeStyle = colors.ammeterColor; ctx.fillStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ammeterInfo.x, ammeterInfo.y, ammeterInfo.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = colors.ammeterColor; ctx.font = `${ammeterInfo.radius * 1.1}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, ammeterInfo.x, ammeterInfo.y + 1); }
+
+    // --- Event Listeners ---
+    toggleButton.addEventListener('click', () => {
+         isSwitchClosed = !isSwitchClosed;
+         toggleButton.textContent = isSwitchClosed ? 'Open Switch' : 'Close Switch';
+         if (!isSwitchClosed) {
+             particles = [];
+         }
+         updateSimulationParameters();
+     });
+
+    rheostatSlider.addEventListener('input', updateSimulationParameters);
+
+    displayCodeButton.addEventListener('click', () => {
+        if (isCodeDisplayed) {
+            codeDisplayContainer.style.display = 'none';
+            displayCodeButton.textContent = 'Display Coding';
+        } else {
+            const fullHtml = document.documentElement.outerHTML;
+            codeContentElement.textContent = fullHtml;
+            codeDisplayContainer.style.display = 'block';
+            displayCodeButton.textContent = 'Hide Coding';
+        }
+        isCodeDisplayed = !isCodeDisplayed;
+    });
+
+
+    // --- Animation Loop ---
+    function animationLoop() {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+        // Spawn particles based on dynamic interval
+        if (isSwitchClosed) {
+            frameCount++;
+            if (frameCount >= particleSpawnInterval && particles.length < maxParticles) {
+                frameCount = 0;
+                 if (finalPaths[1] && finalPaths[1].start) { particles.push(new Particle()); }
+                 else { console.error("Cannot spawn particle, path 1 is invalid."); }
+            }
+        }
+
+        const particlesToRemove = [];
+
+        // Move and draw particles
+        particles.forEach((p, index) => {
+            const keep = p.move();
+            if (!keep) {
+                particlesToRemove.push(index);
+            } else {
+                p.draw(ctx);
+            }
+        });
+
+        // Remove particles
+        for (let i = particlesToRemove.length - 1; i >= 0; i--) {
+            particles.splice(particlesToRemove[i], 1);
+        }
+
+        // Draw static components
+        drawWires(ctx);
+        drawBattery(ctx);
+        drawSwitch(ctx);
+        drawRheostat(ctx);
+        drawAmmeter(ctx, fixed_nAmmeterMain, "A1");
+        drawAmmeter(ctx, fixed_nAmmeterA, "A2");
+        drawAmmeter(ctx, fixed_nAmmeterB, "A3");
+        // Pass the calculated current for each branch to the drawBulb function
+        drawBulb(ctx, fixed_nBulbA, readingValueA2);
+        drawBulb(ctx, fixed_nBulbB, readingValueA3);
+
+        requestAnimationFrame(animationLoop);
+     }
+
+    // --- Initial Setup ---
+    updateSimulationParameters(); // Set initial parameters AND display
+    // Start Animation
+    if (finalPaths && finalPaths.length > 0 && finalPaths[1]) { animationLoop(); }
+    else { console.error("Error initializing circuit paths."); ctx.fillStyle = 'red'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText("Error initializing circuit paths.", canvasWidth/2, canvasHeight/2); }
+
+</script>
+
+</body>
+</html>
+```

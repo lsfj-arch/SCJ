@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Circuit - Battery Shifted Right Slightly</title>
+    <style>
+        body { margin: 20px; font-family: sans-serif; background-color: #f0f0f0; text-align: center;}
+        canvas { border: 1px solid black; background-color: white; margin-bottom: 10px; }
+        button { padding: 10px 15px; font-size: 1em; cursor: pointer;}
+        p { margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+<h1>Parallel Circuit Animation - Battery Shifted Right Slightly</h1>
+<canvas id="circuitCanvas" width="600" height="400"></canvas>
+<br>
+<button id="toggleSwitchBtn">Close Switch</button>
+<p>Only the battery and switch moved right slightly; parallel block stays fixed.</p>
+
+<script>
+    const canvas = document.getElementById('circuitCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const toggleButton = document.getElementById('toggleSwitchBtn');
+
+    // --- State ---
+    let isSwitchClosed = false;
+
+    // --- Configuration ---
+    const colors = { /* ... */ wire: '#333', battery: '#888', batteryPlus: '#FF4136', batteryMinus: '#0074D9', bulbOff: '#AAA', bulbOn: '#FFDC00', particle: '#0074D9', switchColor: '#555' };
+    const particleSpeed = 1.5; const particleRadius = 3; const maxParticles = 80; const particleSpawnInterval = 5;
+
+    // --- Fixed Coordinates for Parallel Block ---
+    // Calculated from the layout when battery.x was canvasWidth / 2 - 150 (x=150)
+    const fixed_nj1 = { x: 195, y: 125 };
+    const fixed_nj2 = { x: 445, y: 125 };
+    const fixed_nj3 = { x: 195, y: 225 };
+    const fixed_nj4 = { x: 445, y: 225 };
+    const fixed_nBulbA = { x: (fixed_nj1.x + fixed_nj2.x) / 2, y: fixed_nj1.y, radius: 15 };
+    const fixed_nBulbB = { x: (fixed_nj3.x + fixed_nj4.x) / 2, y: fixed_nj3.y, radius: 15 };
+
+    // --- Battery Geometry (Shifted Right by 20px) ---
+    // *** ADJUSTED X POSITION ***
+    const battery = { x: canvasWidth / 2 - 80, y: 30, width: 40, height: 30 }; // Was canvasWidth/2 - 100, shifted 20px right (x=220)
+    // --- Coordinates below depend on 'battery' and adjust automatically ---
+    const batteryPlus = { x: battery.x + battery.width, y: battery.y + battery.height / 2 };
+    const batteryMinus = { x: battery.x, y: battery.y + battery.height / 2 };
+
+    // --- Switch Geometry (Shifts with Battery) ---
+    const switchXoffset = 20; const switchLength = 50;
+    const switchStart = { x: batteryPlus.x + switchXoffset, y: batteryPlus.y };
+    const switchEnd = { x: switchStart.x + switchLength, y: batteryPlus.y }; // End of switch (Shifted)
+
+    // --- Connecting Points (Bridge shifted and fixed parts) ---
+    const inputCorner = { x: fixed_nj2.x, y: switchEnd.y };
+    const returnCorner = { x: fixed_nj1.x, y: batteryMinus.y };
+
+    // --- PATH DEFINITIONS (Using fixed nj coords and shifted connection points) ---
+    const finalPaths = [ /* ... Path definitions same as previous ... */
+        { start: switchEnd,   end: inputCorner, next: [7] },     // 0
+        { start: fixed_nj2,   end: fixed_nj1,   next: [4] },     // 1: Branch A
+        { start: fixed_nj4,   end: fixed_nj3,   next: [5] },     // 2: Branch B pt 2
+        { start: fixed_nj2,   end: fixed_nj4,   next: [2] },     // 3: Branch B pt 1
+        { start: fixed_nj1,   end: returnCorner,next: [6] },     // 4: Return pt 1
+        { start: fixed_nj3,   end: fixed_nj1,   next: [4] },     // 5: Branch B pt 3
+        { start: returnCorner,end: batteryMinus,next: [-1] },    // 6: Return pt 2 -> END
+        { start: inputCorner, end: fixed_nj2,   next: [1, 3] }   // 7 -> SPLIT
+    ];
+
+    // Pre-calculate path lengths and direction vectors
+    finalPaths.forEach(p => { /* ... same calculation ... */ if (p) { p.len = Math.hypot(p.end.x - p.start.x, p.end.y - p.start.y) || 0.001; p.dx = (p.end.x - p.start.x) / p.len; p.dy = (p.end.y - p.start.y) / p.len; } });
+
+    // --- Particle Management ---
+    let particles = []; let frameCount = 0;
+    class Particle { /* ... constructor same ... */ constructor() { this.pathIndex = 0; this.posOnPath = 0; if(finalPaths[0]){ this.x = finalPaths[0].start.x; this.y = finalPaths[0].start.y; } else { this.x = 0; this.y = 0; console.error("P0 undef"); } }
+        move() { /* ... Movement logic same as previous ... */ if (!isSwitchClosed) return false; let currentPath = finalPaths[this.pathIndex]; if (!currentPath) return false; this.posOnPath += particleSpeed; if (this.posOnPath >= currentPath.len) { let remainingMove = this.posOnPath - currentPath.len; let nextPathIndices = currentPath.next; if (!nextPathIndices || nextPathIndices[0] === -1) return false; let nextIndex; if (this.pathIndex === 7 && nextPathIndices.length > 1) { nextIndex = randomChoice(nextPathIndices); } else if (this.pathIndex === 0) { nextIndex = 7; } else if (this.pathIndex === 1) { nextIndex = 4; } else if (this.pathIndex === 3) { nextIndex = 2; } else if (this.pathIndex === 2) { nextIndex = 5; } else if (this.pathIndex === 5) { nextIndex = 4; } else if (this.pathIndex === 4) { nextIndex = 6; } else { nextIndex = nextPathIndices[0]; } if (finalPaths[nextIndex] === undefined) return false; this.pathIndex = nextIndex; this.posOnPath = remainingMove; currentPath = finalPaths[this.pathIndex]; if (!currentPath) return false; } this.x = currentPath.start.x + currentPath.dx * this.posOnPath; this.y = currentPath.start.y + currentPath.dy * this.posOnPath; return true; }
+        draw(ctx) { /* ... same ... */ ctx.fillStyle = colors.particle; ctx.beginPath(); ctx.arc(this.x, this.y, particleRadius, 0, Math.PI * 2); ctx.fill(); }
+    }
+    function randomChoice(arr) { /* ... same ... */ return arr[Math.floor(Math.random() * arr.length)]; }
+
+    // --- Drawing Functions ---
+    function drawBattery(ctx) { // Draws SHIFTED battery
+        ctx.fillStyle = colors.battery; ctx.fillRect(battery.x, battery.y, battery.width, battery.height); ctx.fillStyle = colors.batteryPlus; ctx.fillRect(battery.x + battery.width - 5, battery.y - 5, 10, battery.height + 10); ctx.fillStyle = colors.batteryMinus; ctx.fillRect(battery.x - 5, battery.y - 5, 10, battery.height + 10);
+        ctx.fillStyle = '#000'; ctx.font = '18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('+', battery.x + battery.width + 18, battery.y ); ctx.fillText('-', battery.x - 18, battery.y );
+    }
+
+    function drawWires(ctx) { // Draws connections between SHIFTED and FIXED parts
+        ctx.strokeStyle = colors.wire; ctx.lineWidth = 3; ctx.beginPath();
+        // Input Path
+        ctx.moveTo(batteryPlus.x, batteryPlus.y); ctx.lineTo(switchStart.x, switchStart.y); // SHIFTED Batt+ to SHIFTED Switch Start
+        ctx.moveTo(switchEnd.x, switchEnd.y); ctx.lineTo(inputCorner.x, inputCorner.y);     // SHIFTED Switch End to UPDATED Input Corner (Horizontal)
+        ctx.lineTo(fixed_nj2.x, fixed_nj2.y); // UPDATED Input Corner to FIXED nj2 (Vertical Down)
+
+        // Parallel Block (using FIXED coordinates)
+        ctx.moveTo(fixed_nj1.x, fixed_nj1.y); ctx.lineTo(fixed_nj2.x, fixed_nj2.y); // Top wire
+        ctx.moveTo(fixed_nj2.x, fixed_nj2.y); ctx.lineTo(fixed_nj4.x, fixed_nj4.y); // Right vertical
+        ctx.moveTo(fixed_nj4.x, fixed_nj4.y); ctx.lineTo(fixed_nj3.x, fixed_nj3.y); // Bottom wire
+        ctx.moveTo(fixed_nj3.x, fixed_nj3.y); ctx.lineTo(fixed_nj1.x, fixed_nj1.y); // Left vertical
+
+        // Return Path (L-shape: FIXED nj1 -> UPDATED returnCorner -> SHIFTED Batt-)
+        ctx.moveTo(fixed_nj1.x, fixed_nj1.y);                 // FIXED nj1 -> UPDATED returnCorner (Vertical Down)
+        ctx.lineTo(returnCorner.x, returnCorner.y);
+        ctx.lineTo(batteryMinus.x, batteryMinus.y); // UPDATED returnCorner -> SHIFTED Batt- (Horizontal Left)
+
+        ctx.stroke();
+    }
+
+     function drawSwitch(ctx) { // Draws SHIFTED switch
+        const r = 4; ctx.strokeStyle = colors.switchColor; ctx.fillStyle = colors.switchColor; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(switchStart.x, switchStart.y, r, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(switchEnd.x, switchEnd.y, r, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.moveTo(switchStart.x, switchStart.y); if (isSwitchClosed) { ctx.lineTo(switchEnd.x, switchEnd.y); } else { const openLength = switchEnd.x - switchStart.x; ctx.lineTo(switchStart.x + openLength * 0.8, switchStart.y - openLength * 0.3); } ctx.stroke();
+    }
+
+    function drawBulb(ctx, bulbInfo, isLit) { // Draws bulbs at FIXED positions
+       const actualLitState = isSwitchClosed && isLit;
+        ctx.fillStyle = actualLitState ? colors.bulbOn : colors.bulbOff; ctx.beginPath(); ctx.arc(bulbInfo.x, bulbInfo.y, bulbInfo.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = colors.wire; ctx.lineWidth = 1; ctx.stroke(); // Outline
+        const br = bulbInfo.radius * 0.5; ctx.beginPath(); // X
+        ctx.moveTo(bulbInfo.x - br, bulbInfo.y - br); ctx.lineTo(bulbInfo.x + br, bulbInfo.y + br);
+        ctx.moveTo(bulbInfo.x + br, bulbInfo.y - br); ctx.lineTo(bulbInfo.x - br, bulbInfo.y + br);
+        ctx.stroke();
+    }
+
+    // --- Button Control --- /* ... same ... */
+    toggleButton.addEventListener('click', () => { isSwitchClosed = !isSwitchClosed; toggleButton.textContent = isSwitchClosed ? 'Open Switch' : 'Close Switch'; if (!isSwitchClosed) { particles = []; } });
+
+    // --- Animation Loop --- /* ... same ... */
+    function animationLoop() {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        if (isSwitchClosed) { frameCount++; if (frameCount >= particleSpawnInterval && particles.length < maxParticles) { frameCount = 0; if (finalPaths[0]) { particles.push(new Particle()); } } } // Spawn
+        let bulbA_isLit = false; let bulbB_isLit = false; const particlesToRemove = [];
+        particles.forEach((p, index) => { const keep = p.move(); if (!keep) { particlesToRemove.push(index); } else { p.draw(ctx); // Use FIXED bulb coordinates for lighting check
+             if (p.pathIndex === 1 && finalPaths[1] && p.posOnPath > finalPaths[1].len * 0.3 && p.posOnPath < finalPaths[1].len * 0.7) { bulbA_isLit = true; }
+             if (p.pathIndex === 2 && finalPaths[2] && p.posOnPath > finalPaths[2].len * 0.3 && p.posOnPath < finalPaths[2].len * 0.7) { bulbB_isLit = true; } } });
+        for (let i = particlesToRemove.length - 1; i >= 0; i--) { particles.splice(particlesToRemove[i], 1); } // Remove
+        drawWires(ctx); drawBattery(ctx); drawSwitch(ctx);
+        drawBulb(ctx, fixed_nBulbA, bulbA_isLit); // Draw bulbs at FIXED positions
+        drawBulb(ctx, fixed_nBulbB, bulbB_isLit);
+        requestAnimationFrame(animationLoop);
+    }
+
+    // Start Animation /* ... same ... */
+    if (finalPaths && finalPaths.length > 0 && finalPaths[0]) { animationLoop(); } else { console.error("Paths error."); ctx.fillStyle = 'red'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText("Error initializing circuit paths.", canvasWidth/2, canvasHeight/2); }
+
+</script>
+
+</body>
+</html>

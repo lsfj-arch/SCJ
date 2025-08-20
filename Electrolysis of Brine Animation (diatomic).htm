@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electrolysis of Brine Animation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f1f5f9; /* Slate background */
+        }
+        canvas {
+            border: 2px solid #475569; /* Slate border */
+            background-color: #e0f2fe; /* Light blue "water" */
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .controls button {
+            background-color: #f59e0b; /* Amber */
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+        .controls button:hover {
+            background-color: #d97706; /* Darker Amber */
+        }
+        .controls button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+        .description {
+            margin-bottom: 10px;
+            color: #1e293b;
+            max-width: 600px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .legend {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #4b5563;
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            justify-content: center; /* Center items */
+            gap: 15px; /* Space between items */
+            max-width: 550px;
+        }
+        .legend span {
+            display: inline-flex;
+            align-items: center;
+        }
+        .color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+            display: inline-block;
+            border: 1px solid #ccc;
+        }
+         .gas-molecule { /* Style for gas molecules in legend */
+            width: 16px; /* Wider to show two dots */
+            height: 10px;
+            margin-right: 5px;
+            display: inline-block;
+            position: relative; /* For positioning dots inside */
+            vertical-align: middle;
+         }
+         .gas-atom { /* Individual atom in the legend molecule */
+             width: 7px;
+             height: 7px;
+             border-radius: 50%;
+             border: 1px solid #999;
+             display: inline-block;
+             position: absolute;
+         }
+
+    </style>
+</head>
+<body>
+
+    <h1 class="text-2xl font-bold mb-3 text-gray-800">Electrolysis of Brine (NaCl aq)</h1>
+    <p class="description">
+        When electricity flows, Cl⁻ ions move to the positive Anode (+) and form Cl₂ gas molecules. Water reacts at the negative Cathode (-) forming H₂ gas molecules and OH⁻ ions. Na⁺ ions remain in solution with OH⁻ (forming NaOH).
+    </p>
+    <div class="legend">
+        <span><span class="color-dot" style="background-color: #a855f7;"></span> Na⁺</span>
+        <span><span class="color-dot" style="background-color: #16a34a;"></span> Cl⁻</span>
+        <span><span class="color-dot" style="background-color: #60a5fa; opacity: 0.5;"></span> H₂O</span>
+        <span><span class="color-dot" style="background-color: #f97316;"></span> OH⁻</span>
+        <span>
+            <span class="gas-molecule">
+                <span class="gas-atom" style="background-color: #a3e635; left: 0px; top: 1px;"></span>
+                <span class="gas-atom" style="background-color: #a3e635; left: 6px; top: 1px;"></span>
+            </span> Cl₂ Gas
+        </span>
+        <span>
+            <span class="gas-molecule">
+                <span class="gas-atom" style="background-color: #ff00ff; left: 0px; top: 1px;"></span>
+                <span class="gas-atom" style="background-color: #ff00ff; left: 6px; top: 1px;"></span>
+            </span> H₂ Gas
+        </span>
+    </div>
+
+    <canvas id="electrolysisCanvas" width="600" height="400"></canvas>
+
+    <div class="controls">
+        <button id="startButton">Start Electrolysis</button>
+        <button id="resetButton" disabled>Reset</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('electrolysisCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+
+        // --- Configuration ---
+        const electrodeWidth = 20;
+        const electrodeHeight = 250;
+        const electrodePadding = 50; // Distance from sides
+        const anodeX = electrodePadding;
+        const cathodeX = canvas.width - electrodePadding - electrodeWidth;
+        const electrodeY = (canvas.height - electrodeHeight) / 2;
+        const waterLevel = canvas.height - 20; // Top of the "water"
+
+        const particles = [];
+        const numIonPairs = 60; // Number of NaCl pairs
+        const numWater = 150; // Number of visible water molecules (visual only)
+        const particleRadius = 4;
+        // const gasBubbleRadius = 5; // No longer used directly for drawing gas
+        const gasAtomRadius = 3; // Radius of each atom within the gas molecule
+        const ionSpeed = 0.6;
+        const gasSpeed = 1.5;
+        const reactionProbability = 0.08; // Chance per frame for reaction near electrode
+
+        // Colors
+        const naColor = '#a855f7'; // Purple
+        const clColor = '#16a34a'; // Green
+        const h2oColor = 'rgba(96, 165, 250, 0.5)'; // Light Blue Transparent
+        const ohColor = '#f97316'; // Orange
+        const cl2Color = '#a3e635'; // Lime Green
+        const h2Color = '#ff00ff'; // Magenta
+
+        let animationId = null;
+        let electrolysisRunning = false;
+
+        // --- Particle Object ---
+        function createParticle(type) {
+            const p = {
+                x: Math.random() * canvas.width,
+                y: Math.random() * waterLevel,
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: (Math.random() - 0.5) * 0.5,
+                type: type, // 'Na+', 'Cl-', 'H2O', 'OH-', 'H2', 'Cl2'
+                state: 'dissolved', // 'dissolved', 'gas_bubble'
+                radius: particleRadius, // General radius for collision/boundary checks
+                charge: 0,
+                angle: Math.random() * Math.PI * 2 // Angle for diatomic orientation
+            };
+
+            switch (type) {
+                case 'Na+': p.color = naColor; p.charge = 1; break;
+                case 'Cl-': p.color = clColor; p.charge = -1; break;
+                case 'H2O': p.color = h2oColor; break;
+                case 'OH-': p.color = ohColor; p.charge = -1; break;
+                case 'H2':
+                    p.color = h2Color;
+                    p.state = 'gas_bubble';
+                    // Radius still useful for boundary checks, drawing uses gasAtomRadius
+                    p.radius = gasAtomRadius * 1.5; // Effective radius slightly larger than one atom
+                    p.vy = -gasSpeed; p.vx = (Math.random()-0.5)*0.2;
+                    break;
+                case 'Cl2':
+                    p.color = cl2Color;
+                    p.state = 'gas_bubble';
+                    p.radius = gasAtomRadius * 1.5;
+                    p.vy = -gasSpeed; p.vx = (Math.random()-0.5)*0.2;
+                    break;
+            }
+            return p;
+        }
+
+        // --- Initialization ---
+        function init() {
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = null;
+            electrolysisRunning = false;
+            particles.length = 0;
+
+            // Add Ions
+            for (let i = 0; i < numIonPairs; i++) {
+                particles.push(createParticle('Na+'));
+                particles.push(createParticle('Cl-'));
+            }
+            // Add Water (visual only)
+            for (let i = 0; i < numWater; i++) {
+                particles.push(createParticle('H2O'));
+            }
+
+            draw(); // Draw initial state
+            startButton.disabled = false;
+            resetButton.disabled = true;
+        }
+
+        // --- Drawing Functions ---
+        function drawApparatus() {
+            ctx.fillStyle = '#6b7280'; // Electrode color
+            ctx.fillRect(anodeX, electrodeY, electrodeWidth, electrodeHeight);
+            ctx.fillRect(cathodeX, electrodeY, electrodeWidth, electrodeHeight);
+
+            // Labels
+            ctx.fillStyle = '#1e293b';
+            ctx.font = 'bold 14px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText('Anode (+)', anodeX + electrodeWidth / 2, electrodeY - 15);
+            ctx.fillText('Cathode (-)', cathodeX + electrodeWidth / 2, electrodeY - 15);
+
+            // Power supply symbol
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(anodeX + electrodeWidth / 2, electrodeY);
+            ctx.lineTo(anodeX + electrodeWidth / 2, electrodeY - 30);
+            ctx.lineTo(cathodeX + electrodeWidth / 2, electrodeY - 30);
+            ctx.lineTo(cathodeX + electrodeWidth / 2, electrodeY);
+            ctx.moveTo(canvas.width / 2 - 15, electrodeY - 30);
+            ctx.lineTo(canvas.width / 2 - 15, electrodeY - 45);
+            ctx.moveTo(canvas.width / 2 + 15, electrodeY - 30);
+            ctx.lineTo(canvas.width / 2 + 15, electrodeY - 50);
+            ctx.stroke();
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                if (p.state === 'gas_bubble') {
+                    // Draw diatomic molecule
+                    ctx.fillStyle = p.color;
+                    const angle = p.angle; // Use stored angle
+                    const dx = Math.cos(angle) * gasAtomRadius; // Offset for second atom
+                    const dy = Math.sin(angle) * gasAtomRadius;
+
+                    // Atom 1 (slightly offset from center p.x, p.y)
+                    ctx.beginPath();
+                    ctx.arc(p.x - dx/2, p.y - dy/2, gasAtomRadius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Atom 2 (opposite offset)
+                    ctx.beginPath();
+                    ctx.arc(p.x + dx/2, p.y + dy/2, gasAtomRadius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                } else {
+                    // Draw ions and water as single circles
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, particleRadius, 0, Math.PI * 2); // Use particleRadius here
+                    ctx.fill();
+                }
+            });
+        }
+
+        // --- Update Logic ---
+        function updateParticles() {
+            const particlesToRemove = [];
+            const particlesToAdd = [];
+
+            particles.forEach((p, index) => {
+                // --- Movement ---
+                if (p.state === 'dissolved') {
+                    // Ion drift
+                    if (electrolysisRunning && p.charge !== 0) {
+                        if (p.charge > 0) p.vx += (cathodeX - p.x) * 0.0005 * ionSpeed;
+                        else p.vx += (anodeX - p.x) * 0.0005 * ionSpeed;
+                        p.vx *= 0.98;
+                    }
+                     // Random motion
+                     p.vx += (Math.random() - 0.5) * 0.1;
+                     p.vy += (Math.random() - 0.5) * 0.1;
+                     p.vx *= 0.95; p.vy *= 0.95;
+
+                } else if (p.state === 'gas_bubble') {
+                    // Gas movement
+                    p.vy = -gasSpeed * (1 + Math.random()*0.1);
+                    p.vx += (Math.random() - 0.5) * 0.1;
+                    p.vx *= 0.9;
+                    p.angle += p.vx * 0.1; // Rotate slightly based on horizontal movement
+                }
+
+                // Update position
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // --- Boundary Collisions ---
+                // Use p.radius for boundary checks, which is appropriate for both ions and gas molecules
+                if (p.x < p.radius || p.x > canvas.width - p.radius) {
+                    p.vx *= -0.8;
+                    p.x = Math.max(p.radius, Math.min(canvas.width - p.radius, p.x));
+                }
+                 if (p.y > waterLevel - p.radius) {
+                    p.y = waterLevel - p.radius;
+                    p.vy *= -0.5;
+                }
+                 if (p.state !== 'gas_bubble' && p.y < p.radius) {
+                     p.y = p.radius;
+                     p.vy *= -0.5;
+                 }
+                // Gas bubbles leaving top
+                if (p.state === 'gas_bubble' && p.y < p.radius) {
+                    particlesToRemove.push(index);
+                }
+
+                 // --- Electrode Collisions & Reactions ---
+                 if (electrolysisRunning && p.state === 'dissolved') {
+                     // Anode (+) Reaction Zone
+                     const anodeZoneLeft = anodeX + electrodeWidth;
+                     const anodeZoneRight = anodeX + electrodeWidth + 15;
+                     if (p.x > anodeZoneLeft && p.x < anodeZoneRight && p.y > electrodeY && p.y < electrodeY + electrodeHeight) {
+                         // Cl- reacts at Anode
+                         if (p.type === 'Cl-' && Math.random() < reactionProbability) {
+                             const partnerIndex = particles.findIndex((other, otherIdx) =>
+                                 otherIdx !== index && other.type === 'Cl-' && other.state === 'dissolved' &&
+                                 Math.hypot(p.x - other.x, p.y - other.y) < 20
+                             );
+                             if (partnerIndex !== -1 && !particlesToRemove.includes(index) && !particlesToRemove.includes(partnerIndex)) {
+                                 particlesToRemove.push(index);
+                                 particlesToRemove.push(partnerIndex);
+                                 const newCl2 = createParticle('Cl2');
+                                 newCl2.x = anodeX + electrodeWidth + newCl2.radius + 2; // Use gas radius
+                                 newCl2.y = p.y;
+                                 particlesToAdd.push(newCl2);
+                             }
+                         }
+                     }
+
+                     // Cathode (-) Reaction Zone
+                     const cathodeZoneLeft = cathodeX - 15;
+                     const cathodeZoneRight = cathodeX;
+                     if (p.x > cathodeZoneLeft && p.x < cathodeZoneRight && p.y > electrodeY && p.y < electrodeY + electrodeHeight) {
+                          // H2O reacts at Cathode
+                         if (p.type === 'H2O' && Math.random() < reactionProbability) {
+                            const newH2 = createParticle('H2');
+                            newH2.x = cathodeX - newH2.radius - 2; // Use gas radius
+                            newH2.y = p.y;
+                            particlesToAdd.push(newH2);
+
+                            const newOH = createParticle('OH-');
+                            newOH.x = cathodeX - particleRadius - 5; // Use ion radius
+                            newOH.y = p.y;
+                            particlesToAdd.push(newOH);
+
+                            particlesToRemove.push(index); // Remove the reacted water
+                         }
+                     }
+                 } // End electrolysisRunning check
+            }); // End particles.forEach
+
+             // --- Remove and Add Particles ---
+             particlesToRemove.sort((a, b) => b - a);
+             const uniqueIndices = [...new Set(particlesToRemove)];
+             uniqueIndices.forEach(index => {
+                 if (index < particles.length) {
+                     particles.splice(index, 1);
+                 }
+             });
+             particles.push(...particlesToAdd);
+
+        } // End updateParticles
+
+        // --- Animation Loop ---
+        function animate() {
+            updateParticles();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawApparatus();
+            drawParticles(); // Updated drawParticles handles diatomic drawing
+
+            if (electrolysisRunning || particles.some(p => p.state === 'gas_bubble')) {
+                animationId = requestAnimationFrame(animate);
+            } else {
+                 animationId = null;
+                 startButton.disabled = false;
+                 startButton.textContent = "Start Electrolysis";
+            }
+        }
+
+        // --- Event Listeners ---
+        startButton.addEventListener('click', () => {
+            if (!electrolysisRunning) {
+                electrolysisRunning = true;
+                if (!animationId) {
+                    animate();
+                }
+                startButton.textContent = "Running...";
+                startButton.disabled = true;
+                resetButton.disabled = false;
+            }
+        });
+
+        resetButton.addEventListener('click', () => {
+            init();
+            startButton.textContent = "Start Electrolysis";
+        });
+
+        // --- Initial Setup ---
+        function draw() {
+             ctx.clearRect(0, 0, canvas.width, canvas.height);
+             drawApparatus();
+             drawParticles();
+        }
+        window.onload = init;
+
+    </script>
+
+</body>
+</html>

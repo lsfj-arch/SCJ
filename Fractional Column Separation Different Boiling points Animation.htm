@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fractionation Column Visualization (4 Components - Strict Separation)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        canvas {
+            border: 1px solid #6b7280; /* Medium gray border */
+            background-color: #ffffff; /* White canvas */
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .controls button {
+            background-color: #16a34a; /* Green */
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+        .controls button:hover {
+            background-color: #15803d; /* Darker Green */
+        }
+        .controls button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+        .description {
+            margin-bottom: 15px;
+            color: #1f2937;
+            max-width: 650px; /* Adjusted width */
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .info {
+            font-size: 0.9rem;
+            color: #4b5563;
+            text-align: center;
+            margin-top: 5px;
+            width: 100%; /* Ensure it takes width */
+        }
+        .info span { /* Add spacing between legend items */
+             margin: 0 4px; /* Reduced margin */
+        }
+        .color-box {
+            width: 10px;
+            height: 10px;
+            margin-right: 4px;
+            border: 1px solid #ccc;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .tray-label { /* Style for tray percentage labels */
+            font-size: 9px;
+            fill: #374151;
+            text-anchor: start; /* SVG text alignment */
+        }
+    </style>
+</head>
+<body>
+
+    <h1 class="text-2xl font-bold mb-3 text-gray-800">Fractionation Column Visualization (4 Components - Strict Separation)</h1>
+    <p class="description">
+       Strict idealized separation: High BP (<span style="color:#ef4444; font-weight:bold;">Red</span>) only on tray 1. Mid BP (<span style="color:#10b981; font-weight:bold;">Green</span>) only on tray 2. Low BP (<span style="color:#3b82f6; font-weight:bold;">Blue</span>) only on tray 3. Very Low BP (<span style="color:#8b5cf6; font-weight:bold;">Violet</span>) passes all trays and exits. (Tray 0 is lowest).
+    </p>
+
+    <canvas id="columnCanvas" width="400" height="500"></canvas>
+    <div class="info">
+       <span class="color-box" style="background-color: #8b5cf6;"></span> V.Low BP |
+       <span class="color-box" style="background-color: #3b82f6;"></span> Low BP |
+       <span class="color-box" style="background-color: #10b981;"></span> Mid BP |
+       <span class="color-box" style="background-color: #ef4444;"></span> High BP
+       <span style="margin-left: 10px;">(T0 lowest, T3 highest)</span>
+    </div>
+
+
+    <div class="controls">
+        <button id="startVaporButton">Start Vapor Flow</button>
+        <button id="resetButton" disabled>Reset</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('columnCanvas');
+        const ctx = canvas.getContext('2d');
+        const startVaporButton = document.getElementById('startVaporButton');
+        const resetButton = document.getElementById('resetButton');
+
+        // --- Configuration ---
+        const columnWidth = 150;
+        const columnX = (canvas.width - columnWidth) / 2;
+        const numTrays = 4; // Tray indices 0 (bottom) to 3 (top)
+        const trayHeight = (canvas.height - 100) / numTrays;
+        const trayYStart = canvas.height - 50; // Y position of the floor of tray 0
+        const trayThickness = 10;
+        const bubbleCapRadius = 8;
+        const liquidLevelHeight = 15;
+        const particleRadius = 3;
+        const vaporSpeed = 1.5;
+        const liquidDropSpeed = 1;
+
+        // Define 4 components
+        const veryLowBP = { color: '#8b5cf6', vaporColor: '#e9d5ff', bp: 50, type: 'veryLowBP'}; // Violet
+        const lowBP = { color: '#3b82f6', vaporColor: '#dbeafe', bp: 65, type: 'lowBP' };
+        const midBP = { color: '#10b981', vaporColor: '#a7f3d0', bp: 80, type: 'midBP' };
+        const highBP = { color: '#ef4444', vaporColor: '#fee2e2', bp: 100, type: 'highBP' };
+        const componentTypes = [veryLowBP, lowBP, midBP, highBP]; // Array for easier access
+
+        let particles = [];
+        let trayLiquids = [];
+        let animationId = null;
+        let vaporFlowing = false;
+        let frameCount = 0;
+
+        // --- Particle Object ---
+        function createParticle(x, y, bpInfo, isVapor = false, trayIndex = -1) {
+            // Base Condensation probability - very low for veryLowBP
+            let condenseProb = 0.015; // Mid default
+            if (bpInfo.type === 'veryLowBP') condenseProb = 0.0001; // Extremely low chance
+            else if (bpInfo.type === 'lowBP') condenseProb = 0.005;
+            else if (bpInfo.type === 'highBP') condenseProb = 0.030;
+
+            return {
+                x: x, y: y, vx: (Math.random() - 0.5) * 0.5,
+                vy: isVapor ? -vaporSpeed : liquidDropSpeed,
+                type: bpInfo.type, color: isVapor ? bpInfo.vaporColor : bpInfo.color,
+                bp: bpInfo.bp, state: isVapor ? 'vapor' : 'liquid',
+                trayIndex: trayIndex, baseCondenseProb: condenseProb
+            };
+        }
+
+        // --- Initialization ---
+        function init() {
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = null;
+            vaporFlowing = false;
+            particles = [];
+            // Initialize tray compositions for four components (though some will always be 0 based on rules)
+            trayLiquids = Array(numTrays).fill(null).map(() => ({ veryLowBP: 0, lowBP: 0, midBP: 0, highBP: 0, total: 0 }));
+            frameCount = 0;
+            draw();
+            startVaporButton.disabled = false;
+            resetButton.disabled = true;
+        }
+
+        // --- Drawing Functions ---
+        function drawColumnAndTrays() {
+            ctx.strokeStyle = '#4b5563'; ctx.lineWidth = 2;
+            ctx.strokeRect(columnX, 20, columnWidth, canvas.height - 40);
+            for (let i = 0; i < numTrays; i++) {
+                const y = trayYStart - i * trayHeight;
+                ctx.fillStyle = '#e5e7eb'; ctx.fillRect(columnX, y, columnWidth, trayThickness);
+                ctx.strokeRect(columnX, y, columnWidth, trayThickness);
+                ctx.fillStyle = '#9ca3af'; ctx.beginPath();
+                ctx.arc(columnX + columnWidth / 2, y, bubbleCapRadius, Math.PI, 0); ctx.fill();
+                ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath();
+                ctx.moveTo(columnX + columnWidth / 2 - bubbleCapRadius * 0.6, y);
+                ctx.lineTo(columnX + columnWidth / 2 - bubbleCapRadius * 0.6, y + bubbleCapRadius * 0.5);
+                ctx.moveTo(columnX + columnWidth / 2 + bubbleCapRadius * 0.6, y);
+                ctx.lineTo(columnX + columnWidth / 2 + bubbleCapRadius * 0.6, y + bubbleCapRadius * 0.5);
+                ctx.stroke();
+            }
+             ctx.fillStyle = '#6b7280'; ctx.textAlign = 'center'; ctx.font = '12px Inter';
+             ctx.fillText("Vapor In (Mixed)", columnX + columnWidth/2, canvas.height - 15);
+             ctx.fillText("Vapor Out (V.Low BP Only)", columnX + columnWidth/2, 15); // Updated label
+        }
+
+        function drawLiquidOnTrays() {
+             ctx.fillStyle = '#374151'; ctx.font = '9px Inter'; ctx.textAlign = 'left';
+             for (let i = 0; i < numTrays; i++) { // i=0 bottom, i=3 top
+                 const y = trayYStart - i * trayHeight;
+                 const liquid = trayLiquids[i];
+                 const textY = y - liquidLevelHeight / 2 + 3;
+                 const textX = columnX + columnWidth + 5;
+                 ctx.fillText(`T${i}: `, textX - 20, textY);
+                 if (liquid.total > 0) {
+                     const vlowP = Math.round(liquid.veryLowBP / liquid.total * 100);
+                     const lowP = Math.round(liquid.lowBP / liquid.total * 100);
+                     const midP = Math.round(liquid.midBP / liquid.total * 100);
+                     const highP = Math.round(liquid.highBP / liquid.total * 100);
+                     // Abbreviate for space
+                     ctx.fillText(`VL:${vlowP}% L:${lowP}% M:${midP}% H:${highP}%`, textX, textY);
+                 } else {
+                     ctx.fillText(`VL:0% L:0% M:0% H:0%`, textX, textY);
+                 }
+             }
+        }
+
+        function drawParticles() {
+             particles.forEach(p => {
+                ctx.fillStyle = p.color; ctx.beginPath();
+                ctx.arc(p.x, p.y, particleRadius, 0, Math.PI * 2); ctx.fill();
+            });
+        }
+
+        // --- Update Logic ---
+        function updateParticles() {
+            // Introduce new vapor particles (mix of 4)
+            if (vaporFlowing && frameCount % 3 === 0) { // Slightly more frequent vapor
+                 const startX = columnX + columnWidth / 2 + (Math.random() - 0.5) * bubbleCapRadius;
+                 const randType = Math.random();
+                 let typeInfo;
+                 if (randType < 0.25) typeInfo = veryLowBP;
+                 else if (randType < 0.50) typeInfo = lowBP;
+                 else if (randType < 0.75) typeInfo = midBP;
+                 else typeInfo = highBP;
+                 particles.push(createParticle(startX, canvas.height - 35, typeInfo, true, -1));
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+
+                if (p.state === 'vapor') {
+                    p.x += p.vx; p.y += p.vy; // Move up
+
+                    // --- Strict Idealized Tray interaction & Condensation ---
+                    let forceCondense = false;
+                    let targetTrayIndex = -1;
+
+                    for (let j = 0; j < numTrays; j++) { // j=0 bottom, j=3 top
+                        const trayFloorY = trayYStart - j * trayHeight;
+                        const trayLiquidSurfaceY = trayFloorY - liquidLevelHeight;
+
+                        if (p.y < trayFloorY + 5 && p.y > trayLiquidSurfaceY - 10) {
+                            targetTrayIndex = j;
+
+                            // Apply STRICT condensation rules based on user request:
+                            // Red only condenses on tray 1 (j=1) or above
+                            if (p.type === 'highBP' && j >= 1) { forceCondense = true; }
+                            // Green only condenses on tray 2 (j=2) or above
+                            else if (p.type === 'midBP' && j >= 2) { forceCondense = true; }
+                            // Blue only condenses on tray 3 (j=3, top)
+                            else if (p.type === 'lowBP' && j >= 3) { forceCondense = true; }
+                            // VeryLowBP never forced to condense based on tray index
+
+                            if (forceCondense) break;
+                        }
+                    } // End tray loop
+
+                    // Apply condensation if forced
+                    if (forceCondense && targetTrayIndex !== -1) {
+                         p.state = 'liquid';
+                         // Assign correct liquid color based on type
+                         if (p.type === 'veryLowBP') p.color = veryLowBP.color;
+                         else if (p.type === 'lowBP') p.color = lowBP.color;
+                         else if (p.type === 'midBP') p.color = midBP.color;
+                         else p.color = highBP.color;
+
+                         p.y = (trayYStart - targetTrayIndex * trayHeight) - liquidLevelHeight + Math.random() * liquidLevelHeight;
+                         p.x = columnX + particleRadius + Math.random() * (columnWidth - 2 * particleRadius);
+                         p.vx = 0; p.vy = 0; p.trayIndex = targetTrayIndex;
+                         // Update tray counts
+                         if (p.type === 'veryLowBP') trayLiquids[targetTrayIndex].veryLowBP++;
+                         else if (p.type === 'lowBP') trayLiquids[targetTrayIndex].lowBP++;
+                         else if (p.type === 'midBP') trayLiquids[targetTrayIndex].midBP++;
+                         else trayLiquids[targetTrayIndex].highBP++;
+                         trayLiquids[targetTrayIndex].total++;
+                    } else { // Didn't condense, continue moving
+                        // --- Vapor Exit & Wall Bounce ---
+                        if (p.y < 10) { // Reached top exit area
+                            if (p.type === 'veryLowBP') {
+                                particles.splice(i, 1); // Only allow Very Low BP to exit
+                            } else {
+                                particles.splice(i, 1); // Remove others strictly
+                            }
+                        }
+                        else if (p.x < columnX + particleRadius || p.x > columnX + columnWidth - particleRadius) {
+                             p.vx *= -1;
+                             p.x = Math.max(columnX + particleRadius, Math.min(columnX + columnWidth - particleRadius, p.x));
+                         }
+                    }
+
+                } else if (p.state === 'liquid' && p.trayIndex !== -1) {
+                    // --- Idealized Liquid on a tray - chance to re-vaporize ---
+                    const trayLiquid = trayLiquids[p.trayIndex];
+                    if (trayLiquid.total > 0) {
+                         let canVaporize = false;
+                         // Apply STRICT vaporization rules: only vaporize from the designated tray
+                         if (p.type === 'highBP' && p.trayIndex === 1) { // Red only from tray 1
+                             if (Math.random() < 0.005) canVaporize = true;
+                         } else if (p.type === 'midBP' && p.trayIndex === 2) { // Green only from tray 2
+                              if (Math.random() < 0.015) canVaporize = true;
+                         } else if (p.type === 'lowBP' && p.trayIndex === 3) { // Blue only from tray 3
+                              if (Math.random() < 0.030) canVaporize = true;
+                         }
+                         // VeryLowBP should not exist as liquid on trays with these rules
+
+                         if (canVaporize) {
+                             p.state = 'vapor';
+                             // Assign correct vapor color
+                             if (p.type === 'veryLowBP') p.color = veryLowBP.vaporColor;
+                             else if (p.type === 'lowBP') p.color = lowBP.vaporColor;
+                             else if (p.type === 'midBP') p.color = midBP.vaporColor;
+                             else p.color = highBP.vaporColor;
+
+                             p.y = trayYStart - p.trayIndex * trayHeight - bubbleCapRadius;
+                             p.x = columnX + columnWidth / 2 + (Math.random() - 0.5) * bubbleCapRadius;
+                             p.vx = (Math.random() - 0.5) * 0.5; p.vy = -vaporSpeed;
+                             // Update tray counts
+                             if (p.type === 'veryLowBP') trayLiquids[p.trayIndex].veryLowBP--;
+                             else if (p.type === 'lowBP') trayLiquids[p.trayIndex].lowBP--;
+                             else if (p.type === 'midBP') trayLiquids[p.trayIndex].midBP--;
+                             else trayLiquids[p.trayIndex].highBP--;
+                             trayLiquids[p.trayIndex].total--;
+                             p.trayIndex = -1;
+                         }
+                    }
+                    // Drip down logic (simplified - only if not vaporizing)
+                     else if (Math.random() < 0.001 && p.trayIndex > 0) {
+                         // Update counts before dripping
+                         if (p.type === 'veryLowBP') trayLiquids[p.trayIndex].veryLowBP--;
+                         else if (p.type === 'lowBP') trayLiquids[p.trayIndex].lowBP--;
+                         else if (p.type === 'midBP') trayLiquids[p.trayIndex].midBP--;
+                         else trayLiquids[p.trayIndex].highBP--;
+                         trayLiquids[p.trayIndex].total--;
+                         p.trayIndex = -1;
+                         p.vy = liquidDropSpeed;
+                     }
+                }
+                 // Remove liquid falling off bottom
+                 else if (p.state === 'liquid' && p.trayIndex === -1) {
+                     p.y += p.vy;
+                     if (p.y > canvas.height - 30) particles.splice(i, 1);
+                 }
+            }
+             frameCount++;
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+             if (!vaporFlowing && particles.length === 0) {
+                 animationId = null;
+                 resetButton.disabled = true;
+                 startVaporButton.disabled = false;
+                 return;
+            }
+            updateParticles();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawColumnAndTrays();
+            drawLiquidOnTrays();
+            drawParticles();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // --- Event Listeners ---
+        startVaporButton.addEventListener('click', () => {
+            if (!vaporFlowing) {
+                vaporFlowing = true;
+                if (!animationId) { animate(); }
+                startVaporButton.disabled = true;
+                resetButton.disabled = false;
+            }
+        });
+        resetButton.addEventListener('click', () => { init(); });
+
+        // --- Initial Setup ---
+        function draw() {
+             ctx.clearRect(0, 0, canvas.width, canvas.height);
+             drawColumnAndTrays();
+             drawLiquidOnTrays();
+             drawParticles();
+        }
+        window.onload = init;
+
+    </script>
+
+</body>
+</html>

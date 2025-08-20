@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Chromatography Animation (4 Labeled Samples - Updated Sample B)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f9ff; /* Light blue background */
+        }
+        canvas {
+            border: 1px solid #9ca3af; /* Gray border */
+            background-color: #ffffff; /* White canvas */
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-top: 15px;
+        }
+        .controls button {
+            background-color: #10b981; /* Emerald green */
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+            margin: 0 5px;
+        }
+        .controls button:hover {
+            background-color: #059669; /* Darker emerald */
+        }
+        .controls button:disabled {
+            background-color: #9ca3af; /* Gray when disabled */
+            cursor: not-allowed;
+        }
+        .description {
+            margin-bottom: 15px; /* Add space below description */
+            color: #374151; /* Dark gray text */
+            max-width: 500px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .label {
+            position: absolute;
+            font-size: 0.8rem;
+            color: #4b5563;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 1px 3px;
+            border-radius: 3px;
+            white-space: nowrap; /* Prevent labels breaking */
+            pointer-events: none; /* Prevent labels interfering with canvas */
+            text-align: center;
+        }
+        /* Specific style for sample labels */
+        .sample-label {
+            font-weight: 600;
+            color: #1f2937; /* Darker text */
+            font-size: 0.85rem;
+        }
+        #canvas-container {
+            position: relative; /* Needed for absolute positioning of labels */
+            width: 300px; /* Match canvas width */
+            height: 500px; /* Match canvas height */
+        }
+    </style>
+</head>
+<body>
+
+    <h1 class="text-2xl font-bold mb-3 text-gray-800">Paper Chromatography Simulation (4 Labeled Samples)</h1>
+    <p class="description">
+        Four different sample mixtures (A, B, C, D) are spotted on the paper. As the solvent moves up, the components in each mixture separate based on their properties. Sample B contains only one component.
+    </p>
+
+    <div id="canvas-container">
+        <canvas id="chromatographyCanvas" width="300" height="500"></canvas>
+        </div>
+
+
+    <div class="controls">
+        <button id="startButton">Start</button>
+        <button id="resetButton">Reset</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('chromatographyCanvas');
+        const ctx = canvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvas-container');
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+
+        // --- Configuration ---
+        const paperWidth = 180;
+        const paperHeight = 450;
+        const paperX = (canvas.width - paperWidth) / 2;
+        const paperY = 20;
+
+        const solventLevelInitial = canvas.height - 30;
+        const originLineY = canvas.height - 70;
+        const spotRadius = 4;
+
+        let solventFrontY = solventLevelInitial;
+        const solventSpeed = 0.5;
+        const solventColor = 'rgba(173, 216, 230, 0.5)';
+
+        // Define the X positions for the four sample origins
+        const originX1 = paperX + paperWidth * 0.2;
+        const originX2 = paperX + paperWidth * 0.4;
+        const originX3 = paperX + paperWidth * 0.6;
+        const originX4 = paperX + paperWidth * 0.8;
+
+        // Define components for each sample mixture
+        const components = [
+            // Sample A Components (Origin X1) - Red & Blue
+            { color: '#ef4444', Rf: 0.3, y: originLineY, originX: originX1, id: 'sampleA_red' },
+            { color: '#3b82f6', Rf: 0.5, y: originLineY, originX: originX1, id: 'sampleA_blue' },
+
+            // Sample B Components (Origin X2) - Yellow ONLY
+            { color: '#eab308', Rf: 0.8, y: originLineY, originX: originX2, id: 'sampleB_yellow' },
+            // { color: '#ef4444', Rf: 0.3, y: originLineY, originX: originX2, id: 'sampleB_red' }, // Removed Red component from Sample B
+
+            // Sample C Components (Origin X3) - Blue & Yellow
+            { color: '#3b82f6', Rf: 0.5, y: originLineY, originX: originX3, id: 'sampleC_blue' },
+            { color: '#eab308', Rf: 0.8, y: originLineY, originX: originX3, id: 'sampleC_yellow' },
+
+            // Sample D Components (Origin X4) - Red, Blue & Yellow (All three)
+            { color: '#ef4444', Rf: 0.3, y: originLineY, originX: originX4, id: 'sampleD_red' },
+            { color: '#3b82f6', Rf: 0.5, y: originLineY, originX: originX4, id: 'sampleD_blue' },
+            { color: '#eab308', Rf: 0.8, y: originLineY, originX: originX4, id: 'sampleD_yellow' }
+        ];
+        const initialSpotColor = '#374151';
+
+        let animationId = null;
+        let isRunning = false;
+        const labels = {}; // Store label DOM elements
+
+        // --- Drawing Functions ---
+        function drawPaper() {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#d1d5db';
+            ctx.lineWidth = 1;
+            ctx.fillRect(paperX, paperY, paperWidth, paperHeight);
+            ctx.strokeRect(paperX, paperY, paperWidth, paperHeight);
+        }
+
+        function drawSolventInitial() {
+            ctx.fillStyle = solventColor;
+            ctx.fillRect(0, solventLevelInitial, canvas.width, canvas.height - solventLevelInitial);
+        }
+
+        function drawOriginLine() {
+            ctx.strokeStyle = '#6b7280';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.setLineDash([3, 3]);
+            ctx.moveTo(paperX, originLineY);
+            ctx.lineTo(paperX + paperWidth, originLineY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawInitialSpots() {
+            const origins = [originX1, originX2, originX3, originX4];
+            ctx.fillStyle = initialSpotColor;
+            origins.forEach(xPos => {
+                ctx.beginPath();
+                ctx.arc(xPos, originLineY, spotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function drawSolventFront() {
+            if (solventFrontY < paperY + 5) return;
+            ctx.strokeStyle = '#0ea5e9';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.setLineDash([4, 2]);
+            ctx.moveTo(paperX, solventFrontY);
+            ctx.lineTo(paperX + paperWidth, solventFrontY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawComponents() {
+            components.forEach(comp => {
+                if (comp.y < originLineY - 1) {
+                    ctx.fillStyle = comp.color;
+                    ctx.beginPath();
+                    ctx.arc(comp.originX, comp.y, spotRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+             if (!isRunning || solventFrontY >= originLineY) {
+                 drawInitialSpots();
+             }
+        }
+
+         // --- Label Management ---
+         function createOrUpdateLabel(id, text, x, y, extraClass = '') {
+             let label = labels[id];
+             if (!label) {
+                 label = document.createElement('div');
+                 label.id = id;
+                 label.className = `label ${extraClass}`.trim();
+                 canvasContainer.appendChild(label);
+                 labels[id] = label;
+             }
+             label.textContent = text;
+             label.style.left = `${x}px`;
+             label.style.top = `${y}px`;
+             label.style.display = 'block';
+         }
+
+        function removeLabels() {
+             Object.values(labels).forEach(label => label.remove());
+             for (const key in labels) {
+                 delete labels[key];
+             }
+         }
+
+         function drawLabels() {
+            const canvasRect = canvas.getBoundingClientRect();
+            const containerRect = canvasContainer.getBoundingClientRect();
+             if (!canvasRect || !containerRect) return;
+            const offsetX = canvasRect.left - containerRect.left;
+            const offsetY = canvasRect.top - containerRect.top;
+
+            // Static Labels
+            createOrUpdateLabel('solvent-label', 'Solvent', offsetX + 5, offsetY + solventLevelInitial + 5);
+            createOrUpdateLabel('origin-label', 'Origin Line', offsetX + paperX + paperWidth + 5, offsetY + originLineY - 8);
+            const sampleLabelY = offsetY + originLineY + 10;
+            createOrUpdateLabel('sample-label-A', 'A', offsetX + originX1 - 5, sampleLabelY, 'sample-label');
+            createOrUpdateLabel('sample-label-B', 'B', offsetX + originX2 - 5, sampleLabelY, 'sample-label');
+            createOrUpdateLabel('sample-label-C', 'C', offsetX + originX3 - 5, sampleLabelY, 'sample-label');
+            createOrUpdateLabel('sample-label-D', 'D', offsetX + originX4 - 5, sampleLabelY, 'sample-label');
+
+            // Dynamic Labels
+            if (isRunning && solventFrontY < solventLevelInitial - 5) {
+                 createOrUpdateLabel('front-label', 'Solvent Front', offsetX + paperX + paperWidth + 5, offsetY + solventFrontY - 8);
+             } else {
+                  if(labels['front-label']) labels['front-label'].style.display = 'none';
+             }
+             if (isRunning && solventFrontY < originLineY - 20) {
+                 components.forEach((comp) => {
+                     if (comp.y < originLineY - 10) {
+                         createOrUpdateLabel(`comp-${comp.id}`, `Rf=${comp.Rf}`, offsetX + comp.originX + 8, offsetY + comp.y - 8);
+                     } else {
+                          if(labels[`comp-${comp.id}`]) labels[`comp-${comp.id}`].style.display = 'none';
+                     }
+                 });
+             } else {
+                  components.forEach((comp) => {
+                      if(labels[`comp-${comp.id}`]) labels[`comp-${comp.id}`].style.display = 'none';
+                  });
+             }
+         }
+
+        // --- Animation Logic ---
+        function init() {
+            isRunning = false;
+            solventFrontY = solventLevelInitial;
+            components.forEach(comp => comp.y = originLineY);
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            removeLabels();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPaper();
+            drawSolventInitial();
+            drawOriginLine();
+            drawInitialSpots();
+            drawLabels();
+            startButton.disabled = false;
+            resetButton.disabled = true;
+        }
+
+        function update() {
+            if (solventFrontY > paperY + 5) {
+                solventFrontY -= solventSpeed;
+            } else {
+                isRunning = false;
+                if (animationId) cancelAnimationFrame(animationId);
+                animationId = null;
+                startButton.disabled = true;
+                resetButton.disabled = false;
+                drawLabels();
+                return;
+            }
+            const solventTravelDistance = originLineY - solventFrontY;
+            if (solventTravelDistance > 0) {
+                components.forEach(comp => {
+                    const componentTravelDistance = solventTravelDistance * comp.Rf;
+                    const targetY = originLineY - componentTravelDistance;
+                    comp.y = Math.max(targetY, solventFrontY);
+                });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPaper();
+            drawSolventInitial();
+            drawOriginLine();
+            drawSolventFront();
+            drawComponents();
+            drawLabels();
+        }
+
+        function animate() {
+            if (!isRunning) return;
+            update();
+            draw();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // --- Event Listeners ---
+        startButton.addEventListener('click', () => {
+            if (!isRunning) {
+                if (solventFrontY <= paperY + 5) {
+                    init();
+                }
+                isRunning = true;
+                animate();
+                startButton.disabled = true;
+                resetButton.disabled = false;
+            }
+        });
+
+        resetButton.addEventListener('click', () => {
+            init();
+        });
+
+        // --- Initial Setup ---
+        window.onload = () => {
+            init();
+        };
+
+    </script>
+
+</body>
+</html>
