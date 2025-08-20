@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stepwise Titration with Indicator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .chart-container {
+            width: 80%;
+            max-width: 700px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        #info-area { /* Container for status and indicator */
+            display: flex;
+            align-items: center;
+            justify-content: center; /* Center items horizontally */
+            gap: 20px; /* Space between status and indicator */
+            margin-top: 20px;
+            width: 80%;
+            max-width: 700px;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+        }
+        #status {
+            font-size: 1.1em;
+            color: #333;
+            background-color: #eee;
+            padding: 10px 15px;
+            border-radius: 5px;
+            min-height: 40px;
+            text-align: center;
+            flex-grow: 1; /* Allow status to take available space */
+        }
+        #indicator-area {
+             display: flex;
+             flex-direction: column; /* Label above box */
+             align-items: center;
+        }
+         #indicator-label {
+             font-size: 0.9em;
+             color: #555;
+             margin-bottom: 5px;
+         }
+        #indicatorBox {
+            width: 50px;
+            height: 50px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: red; /* Initial color */
+            transition: background-color 0.3s ease; /* Smooth color transition */
+        }
+        #controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px; /* Space below info area */
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+         button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Stepwise Titration with Indicator (NaOH into HCl)</h1>
+
+    <div class="chart-container">
+        <canvas id="titrationChart"></canvas>
+    </div>
+
+     <div id="info-area">
+        <div id="status">Initial state: 0 cm³ added, pH = 1.0</div>
+        <div id="indicator-area">
+             <span id="indicator-label">Indicator Color:</span>
+            <div id="indicatorBox"></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="addButton">Add 1 cm³ NaOH</button>
+        <button id="resetButton">Reset</button>
+    </div>
+
+
+    <script>
+        // --- Data Points ---
+        const volume_naoh = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        const ph_value =    [1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 7.0, 12.0, 12.8, 12.9, 12.9, 12.9];
+
+        // --- Elements ---
+        const ctx = document.getElementById('titrationChart').getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const addButton = document.getElementById('addButton');
+        const resetButton = document.getElementById('resetButton');
+        const indicatorBox = document.getElementById('indicatorBox'); // Get the indicator box
+        let titrationChart;
+        let currentVolumeIndex = 0;
+
+        // --- Chart Configuration (same as before) ---
+         const chartConfig = {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'pH Value', data: [], borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, tension: 0.1 }] },
+            options: {
+                responsive: true, maintainAspectRatio: true, animation: { duration: 300 },
+                scales: { x: { type: 'linear', title: { display: true, text: 'Volume of NaOH added (cm³)' }, min: 0, max: 16, ticks: { stepSize: 1 } }, y: { title: { display: true, text: 'pH Value' }, min: 0, max: 14 } },
+                plugins: { legend: { display: true }, title: { display: true, text: 'Change in pH during NaOH addition to HCl' } }
+            }
+        };
+
+        // --- Helper Function for Indicator Color ---
+        function getIndicatorColor(ph) {
+            // Approximate Universal Indicator colors
+            if (ph <= 3) return 'red';         // Strong acid
+            if (ph >= 4 && ph <= 5) return 'orange';    // Weak acid
+            if (ph == 6) return 'yellow';       // Weak acid / near neutral
+            if (ph == 7) return 'lime'; // Neutral (lime or lightgreen often used)
+            if (ph >= 8 && ph <= 9) return 'green';     // Weak alkali
+            if (ph >= 10 && ph <= 11) return 'blue';    // Alkali
+            if (ph >= 12) return 'purple';     // Strong alkali
+            return 'grey'; // Default/fallback
+        }
+
+        // --- Core Functions ---
+        function initializeChart() {
+            if (titrationChart) {
+                titrationChart.destroy();
+            }
+            chartConfig.data.labels = [volume_naoh[0]];
+            chartConfig.data.datasets[0].data = [ph_value[0]];
+
+            titrationChart = new Chart(ctx, chartConfig);
+            currentVolumeIndex = 0;
+            updateVisuals(); // Update text and color box
+            addButton.disabled = false;
+        }
+
+        function addPortion() {
+            if (currentVolumeIndex < volume_naoh.length - 1) {
+                currentVolumeIndex++;
+                titrationChart.data.labels.push(volume_naoh[currentVolumeIndex]);
+                titrationChart.data.datasets[0].data.push(ph_value[currentVolumeIndex]);
+                titrationChart.update();
+                updateVisuals(); // Update text and color box
+
+                if (currentVolumeIndex === volume_naoh.length - 1) {
+                    addButton.disabled = true;
+                }
+            }
+        }
+
+        // Combined function to update status text AND indicator color
+        function updateVisuals() {
+            const currentVolume = volume_naoh[currentVolumeIndex];
+            const currentPh = ph_value[currentVolumeIndex];
+
+            // Update status text
+            statusDiv.textContent = `Total Volume Added: ${currentVolume} cm³ | Current pH ≈ ${currentPh.toFixed(1)}`;
+             if (currentVolumeIndex === volume_naoh.length - 1) {
+                 statusDiv.textContent += " - Titration Complete!";
+             }
+
+            // Update indicator color box
+            const color = getIndicatorColor(currentPh);
+            indicatorBox.style.backgroundColor = color;
+        }
+
+        // --- Event Listeners ---
+        addButton.addEventListener('click', addPortion);
+        resetButton.addEventListener('click', initializeChart);
+
+        // --- Initial Setup ---
+        window.onload = initializeChart;
+
+    </script>
+
+</body>
+</html>
