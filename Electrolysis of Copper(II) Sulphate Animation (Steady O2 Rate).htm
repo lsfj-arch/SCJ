@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electrolysis of Copper(II) Sulfate Animation (Steady O2 Rate)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f8fafc; /* Lighter background */
+        }
+        canvas {
+            border: 2px solid #475569; /* Slate border */
+            /* Background color set dynamically */
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .controls button {
+            background-color: #2563eb; /* Blue */
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+        .controls button:hover {
+            background-color: #1d4ed8; /* Darker Blue */
+        }
+        .controls button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+        .description {
+            margin-bottom: 10px;
+            color: #1e293b;
+            max-width: 600px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .legend {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #4b5563;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px 15px;
+            max-width: 600px;
+        }
+        .legend span { display: inline-flex; align-items: center; }
+        .color-dot {
+            width: 10px; height: 10px; border-radius: 50%; margin-right: 5px;
+            display: inline-block; border: 1px solid #ccc;
+        }
+         .gas-molecule {
+            width: 16px; height: 10px; margin-right: 5px; display: inline-block;
+            position: relative; vertical-align: middle;
+         }
+         .gas-atom {
+             width: 7px; height: 7px; border-radius: 50%; border: 1px solid #999;
+             display: inline-block; position: absolute;
+         }
+    </style>
+</head>
+<body>
+
+    <h1 class="text-2xl font-bold mb-3 text-gray-800">Electrolysis of CuSO₄ (aq) with Inert Electrodes</h1>
+    <p class="description">
+        Cu²⁺ deposits as Cu metal on Cathode (-). Water forms O₂ gas (green) and H⁺ ions (red) at the Anode (+) at a steady rate (~10/sec). SO₄²⁻ ions remain. Blue solution fades over ~30 seconds.
+    </p>
+     <div class="legend">
+        <span><span class="color-dot" style="background-color: #3b82f6;"></span> Cu²⁺</span>
+        <span><span class="color-dot" style="background-color: #fbbf24;"></span> SO₄²⁻</span>
+        <span><span class="color-dot" style="background-color: #93c5fd; opacity: 0.5;"></span> H₂O</span>
+        <span><span class="color-dot" style="background-color: #f87171;"></span> H⁺</span>
+        <span> <span class="gas-molecule">
+                <span class="gas-atom" style="background-color: #16a34a; left: 0px; top: 1px;"></span>
+                <span class="gas-atom" style="background-color: #16a34a; left: 6px; top: 1px;"></span>
+            </span> O₂ Gas
+        </span>
+        <span><span class="color-dot" style="background-color: #b45309;"></span> Cu Metal Layer</span>
+    </div>
+
+    <canvas id="electrolysisCanvas" width="600" height="400"></canvas>
+     <div class="controls">
+        <button id="startButton">Start Electrolysis</button>
+        <button id="resetButton" disabled>Reset</button>
+    </div>
+
+    <script>
+        // Get DOM elements first
+        const canvas = document.getElementById('electrolysisCanvas');
+        const ctx = canvas ? canvas.getContext('2d') : null;
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+
+        // --- Declare variables globally using let ---
+        let electrodeWidth, electrodeHeight, electrodePadding, anodeX, cathodeX;
+        let cellHeight, cellY, cellFloor, electrodeBottomY, electrodeY, waterLevel;
+        let powerSupplyY, powerSupplyWidth, powerSupplyHeight, powerSupplyX;
+        let cellWidth;
+        let maxDepositThickness;
+        let electrodeGap;
+
+        // --- Other Configuration ---
+        const particles = [];
+        const numIonPairs = 80;
+        const numWater = 250; // *** Increased water molecules ***
+        const particleRadius = 4;
+        const gasAtomRadius = 3;
+        const ionSpeed = 0.6;
+        const gasSpeed = 1.5;
+        const reactionProbability = 0.06; // Probability for cathode reaction
+        const depositIncrement = 0.1;
+
+        // Colors
+        const cuIonColor = '#3b82f6';
+        const so4IonColor = '#fbbf24';
+        const h2oColor = 'rgba(147, 197, 253, 0.4)';
+        const hIonColor = '#f87171';
+        const o2Color = '#16a34a'; // Green O2
+        const cuMetalColor = '#b45309';
+        const electrodeColor = '#4b5569';
+
+        // Background color fading
+        const initialBgColorAlpha = 0.15;
+        let currentBgColorAlpha = initialBgColorAlpha;
+        const minBgColorAlpha = 0.05;
+
+        let animationId = null;
+        let electrolysisRunning = false;
+        let cathodeDepositThickness = 0;
+
+        // Timer variables
+        let startTime = null;
+        const durationLimit = 30000; // 30 seconds in milliseconds
+        let lastO2Time = 0; // Time the last O2 was produced
+        const o2Interval = 100; // Interval for O2 production (1000ms / 10 per sec = 100ms)
+
+        // --- Function to Calculate Dimensions ---
+        function calculateDimensions() {
+            if (!canvas) { console.error("Canvas not found"); return false; }
+            electrodeWidth = 20; electrodeHeight = 180; electrodePadding = 80; electrodeGap = 20;
+            cellX = electrodePadding; anodeX = cellX + electrodeGap;
+            cathodeX = canvas.width - electrodePadding - electrodeGap - electrodeWidth;
+            cellHeight = canvas.height * 0.75; cellY = 20; cellFloor = cellY + cellHeight;
+            electrodeBottomY = cellFloor - 30; electrodeY = electrodeBottomY - electrodeHeight;
+            waterLevel = cellFloor - 10; cellWidth = canvas.width - 2 * electrodePadding;
+            powerSupplyY = cellFloor + 30; powerSupplyWidth = 60; powerSupplyHeight = 30;
+            powerSupplyX = canvas.width / 2 - powerSupplyWidth / 2;
+            maxDepositThickness = 15;
+            return true;
+        }
+
+        // --- Particle Object ---
+        function createParticle(type) {
+            if (cellX === undefined || cellWidth === undefined) return null;
+            const initialX = cellX + particleRadius + Math.random() * (cellWidth - 2 * particleRadius);
+            const initialY = cellY + particleRadius + Math.random() * (waterLevel - cellY - 2 * particleRadius);
+            const p = {
+                x: initialX, y: initialY,
+                vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5,
+                type: type, state: 'dissolved', radius: particleRadius, charge: 0,
+                angle: Math.random() * Math.PI * 2
+            };
+            switch (type) {
+                case 'Cu2+': p.color = cuIonColor; p.charge = 2; break;
+                case 'SO4^2-': p.color = so4IonColor; p.charge = -2; break;
+                case 'H2O': p.color = h2oColor; p.radius = 3; break;
+                case 'H+': p.color = hIonColor; p.charge = 1; p.radius = 2; break;
+                case 'O2':
+                    p.color = o2Color; p.state = 'gas_bubble';
+                    p.radius = gasAtomRadius * 1.5;
+                    p.vy = -gasSpeed; p.vx = (Math.random()-0.5)*0.2;
+                    break;
+            }
+             p.x = Math.max(cellX + p.radius, Math.min(cellX + cellWidth - p.radius, p.x));
+             p.y = Math.max(cellY + p.radius, Math.min(waterLevel - p.radius, p.y));
+            return p;
+        }
+
+        // --- Initialization ---
+        function init() {
+            if (!ctx) { console.error("Canvas context not available in init."); return; }
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = null;
+            electrolysisRunning = false;
+            particles.length = 0;
+            cathodeDepositThickness = 0;
+            currentBgColorAlpha = initialBgColorAlpha;
+            startTime = null;
+            lastO2Time = 0;
+
+            if (!calculateDimensions()) { console.error("Failed to calculate dimensions in init."); return; }
+
+            for (let i = 0; i < numIonPairs; i++) {
+                const p_cu = createParticle('Cu2+'); if(p_cu) particles.push(p_cu);
+                const p_so4 = createParticle('SO4^2-'); if(p_so4) particles.push(p_so4);
+            }
+            for (let i = 0; i < numWater; i++) { // Creates more water molecules
+                const p_h2o = createParticle('H2O'); if(p_h2o) particles.push(p_h2o);
+            }
+
+            draw(); // Initial draw
+            if(startButton) startButton.disabled = false;
+            if(resetButton) resetButton.disabled = true;
+        }
+
+        // --- Drawing Functions ---
+        function drawApparatus() {
+            // ... (drawApparatus remains the same) ...
+            if (!ctx || cellX === undefined || cellWidth === undefined) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = `rgba(59, 130, 246, ${currentBgColorAlpha})`;
+            ctx.fillRect(cellX, cellY, cellWidth, cellHeight);
+            ctx.strokeStyle = '#475569'; ctx.lineWidth = 2;
+            ctx.strokeRect(cellX, cellY, cellWidth, cellHeight);
+
+            ctx.fillStyle = electrodeColor;
+            ctx.fillRect(anodeX, electrodeY, electrodeWidth, electrodeHeight); // Anode
+            ctx.fillRect(cathodeX, electrodeY, electrodeWidth, electrodeHeight); // Cathode (base)
+
+            if (cathodeDepositThickness > 0) {
+                ctx.fillStyle = cuMetalColor;
+                ctx.fillRect(cathodeX - cathodeDepositThickness, electrodeY, cathodeDepositThickness, electrodeHeight);
+                ctx.fillRect(cathodeX - cathodeDepositThickness, electrodeY, electrodeWidth + cathodeDepositThickness, 1);
+                ctx.fillRect(cathodeX - cathodeDepositThickness, electrodeBottomY - 1, electrodeWidth + cathodeDepositThickness, 1);
+                ctx.fillRect(cathodeX + electrodeWidth, electrodeY, 1, electrodeHeight);
+            }
+
+            ctx.fillStyle = '#1e293b'; ctx.font = 'bold 14px Inter'; ctx.textAlign = 'center';
+            ctx.fillText('Anode (+)', anodeX + electrodeWidth / 2, electrodeY - 10);
+            ctx.fillText('Cathode (-)', cathodeX + electrodeWidth / 2, electrodeY - 10);
+
+            ctx.fillStyle = '#d1d5db';
+            ctx.fillRect(powerSupplyX, powerSupplyY, powerSupplyWidth, powerSupplyHeight);
+            ctx.strokeStyle = '#4b5569'; ctx.lineWidth = 1;
+            ctx.strokeRect(powerSupplyX, powerSupplyY, powerSupplyWidth, powerSupplyHeight);
+            ctx.fillStyle = '#ef4444'; ctx.fillRect(powerSupplyX + 5, powerSupplyY - 5, 10, 5);
+            ctx.fillStyle = '#374151'; ctx.fillRect(powerSupplyX + powerSupplyWidth - 15, powerSupplyY - 5, 10, 5);
+            ctx.fillStyle = '#1e293b'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center';
+            ctx.fillText('+', powerSupplyX + 10, powerSupplyY - 8);
+            ctx.fillText('-', powerSupplyX + powerSupplyWidth - 10, powerSupplyY - 8);
+
+            ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(anodeX + electrodeWidth / 2, electrodeBottomY);
+            ctx.lineTo(anodeX + electrodeWidth / 2, powerSupplyY + powerSupplyHeight / 2);
+            ctx.lineTo(powerSupplyX + 10, powerSupplyY + powerSupplyHeight / 2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cathodeX + electrodeWidth / 2, electrodeBottomY);
+            ctx.lineTo(cathodeX + electrodeWidth / 2, powerSupplyY + powerSupplyHeight / 2);
+            ctx.lineTo(powerSupplyX + powerSupplyWidth - 10, powerSupplyY + powerSupplyHeight / 2); ctx.stroke();
+        }
+
+
+        function drawParticles() {
+             // ... (drawParticles remains the same) ...
+             if (!ctx || cellX === undefined || cellWidth === undefined) return;
+             ctx.save();
+             ctx.beginPath();
+             ctx.rect(cellX, cellY, cellWidth, cellHeight);
+             ctx.clip();
+            particles.forEach(p => {
+                if (p.state === 'gas_bubble') { // Draw O2 as diatomic
+                    ctx.fillStyle = p.color;
+                    const angle = p.angle;
+                    const dx = Math.cos(angle) * gasAtomRadius; const dy = Math.sin(angle) * gasAtomRadius;
+                    ctx.beginPath(); ctx.arc(p.x - dx/2, p.y - dy/2, gasAtomRadius, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(p.x + dx/2, p.y + dy/2, gasAtomRadius, 0, Math.PI * 2); ctx.fill();
+                } else if (p.state === 'dissolved') { // Draw ions and water
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fill();
+                }
+            });
+            ctx.restore();
+        }
+
+        // --- Update Logic ---
+        function updateParticles() {
+            if (!canvas || cellX === undefined || cellWidth === undefined) return;
+            const particlesToRemove = []; const particlesToAdd = [];
+            const now = performance.now();
+
+            // Fade background color
+            if (electrolysisRunning && currentBgColorAlpha > minBgColorAlpha && particles.some(p => p.type === 'Cu2+')) {
+                 currentBgColorAlpha -= 0.00005;
+            }
+
+            // Time-based O2 Production at Anode
+            if (electrolysisRunning && startTime && (now - lastO2Time > o2Interval)) {
+                let waterIndices = [];
+                for (let i = 0; i < particles.length && waterIndices.length < 2; i++) {
+                    const p = particles[i];
+                    if (p && p.type === 'H2O' && p.x > anodeX && p.x < anodeX + electrodeWidth + 30 && p.y > electrodeY && p.y < electrodeBottomY) {
+                        if (!particlesToRemove.includes(i)) { waterIndices.push(i); }
+                    }
+                }
+                if (waterIndices.length >= 1) { // Check if at least one water molecule found
+                    particlesToRemove.push(waterIndices[0]);
+                    if (waterIndices.length >= 2 && !particlesToRemove.includes(waterIndices[1])) { particlesToRemove.push(waterIndices[1]); }
+                    const newO2 = createParticle('O2');
+                    if (newO2) {
+                        newO2.x = anodeX + electrodeWidth + gasAtomRadius + 2;
+                        newO2.y = electrodeY + Math.random() * electrodeHeight;
+                        particlesToAdd.push(newO2);
+                    }
+                    for(let k=0; k<2; k++) {
+                        const newH = createParticle('H+');
+                        if(newH) {
+                            newH.x = anodeX + electrodeWidth + particleRadius + Math.random()*10;
+                            newH.y = electrodeY + Math.random() * electrodeHeight;
+                            particlesToAdd.push(newH);
+                        }
+                    }
+                    lastO2Time = now;
+                }
+                // If no water found near anode, O2 production pauses until water drifts there
+            } // End time-based O2 production
+
+
+            particles.forEach((p, index) => {
+                if (particlesToRemove.includes(index)) return;
+                // Movement
+                if (p.state === 'dissolved') {
+                    if (electrolysisRunning && p.charge !== 0) {
+                        if (p.charge > 0) p.vx += (cathodeX - p.radius - p.x) * 0.0005 * ionSpeed * Math.abs(p.charge);
+                        else p.vx += (anodeX + electrodeWidth + p.radius - p.x) * 0.0005 * ionSpeed * Math.abs(p.charge);
+                        p.vx *= 0.98;
+                    }
+                     p.vx += (Math.random() - 0.5) * 0.1; p.vy += (Math.random() - 0.5) * 0.1;
+                     p.vx *= 0.95; p.vy *= 0.95;
+                } else if (p.state === 'gas_bubble') {
+                    p.vy = -gasSpeed * (1 + Math.random()*0.1);
+                    p.vx += (Math.random() - 0.5) * 0.1; p.vx *= 0.9;
+                    p.angle += p.vx * 0.1;
+                }
+                if (p.state !== 'solid_deposit') { p.x += p.vx; p.y += p.vy; }
+
+                // Boundary Collisions
+                const leftBoundary = cellX + p.radius; const rightBoundary = cellX + cellWidth - p.radius;
+                const topBoundary = cellY + p.radius; const bottomBoundary = waterLevel - p.radius;
+                if (p.x < leftBoundary || p.x > rightBoundary) {
+                    if (p.state !== 'solid_deposit') p.vx *= -0.8;
+                    p.x = Math.max(leftBoundary, Math.min(rightBoundary, p.x));
+                }
+                 if (p.y > bottomBoundary) {
+                    if (p.state !== 'solid_deposit') p.vy *= -0.5;
+                    p.y = bottomBoundary;
+                }
+                 if (p.y < topBoundary && p.state !== 'gas_bubble') {
+                     if (p.state !== 'solid_deposit') p.vy *= -0.5;
+                     p.y = topBoundary;
+                 }
+                 if (p.state === 'gas_bubble' && p.y < topBoundary) {
+                     if (!particlesToRemove.includes(index)) particlesToRemove.push(index);
+                 }
+
+                 // Electrode Reactions (Cathode only)
+                 if (electrolysisRunning && p.state === 'dissolved') {
+                     const cathodeSurfaceX = cathodeX - particleRadius;
+                     const cathodeZoneLeft = cathodeSurfaceX - 15;
+                      if (p.type === 'Cu2+' && p.x < cathodeX && p.x > cathodeZoneLeft && p.y > electrodeY && p.y < electrodeBottomY) {
+                         if (Math.random() < reactionProbability) {
+                             if (!particlesToRemove.includes(index)) particlesToRemove.push(index);
+                             if (cathodeDepositThickness < maxDepositThickness) {
+                                 cathodeDepositThickness += depositIncrement;
+                             }
+                         }
+                     }
+                 }
+            });
+             // Remove and Add Particles
+             particlesToRemove.sort((a, b) => b - a);
+             const uniqueIndices = [...new Set(particlesToRemove)];
+             uniqueIndices.forEach(idx => { if (idx >= 0 && idx < particles.length) particles.splice(idx, 1); });
+             particles.push(...particlesToAdd);
+        } // End updateParticles
+
+
+        // --- Animation Loop ---
+        function animate() {
+            if (!ctx) { console.error("Canvas context lost..."); return; }
+            const currentTime = performance.now();
+            // Check timer FIRST
+            if (electrolysisRunning && startTime && (currentTime - startTime > durationLimit)) {
+                electrolysisRunning = false;
+            }
+            try {
+                updateParticles();
+                drawApparatus();
+                drawParticles();
+                // Loop condition: Continue if electrolysis was running OR if bubbles exist
+                if (electrolysisRunning || particles.some(p => p.state === 'gas_bubble')) {
+                    animationId = requestAnimationFrame(animate);
+                } else {
+                     animationId = null;
+                     if(startButton) { startButton.disabled = false; startButton.textContent = "Start Electrolysis"; }
+                     if(resetButton) resetButton.disabled = false;
+                }
+            } catch (error) {
+                console.error("Error during animation loop:", error);
+                if (animationId) cancelAnimationFrame(animationId); animationId = null;
+                if(startButton) { startButton.disabled = false; startButton.textContent = "Start Electrolysis"; }
+                if(resetButton) resetButton.disabled = false;
+            }
+        }
+
+        // --- Event Listeners ---
+        if(startButton) {
+            startButton.addEventListener('click', () => {
+                 init(); // Always reset on start
+                 setTimeout(() => {
+                     if (cellX !== undefined) {
+                         electrolysisRunning = true;
+                         startTime = performance.now();
+                         lastO2Time = startTime;
+                         if (!animationId) { animate(); }
+                         startButton.textContent = "Running..."; startButton.disabled = true;
+                         if(resetButton) resetButton.disabled = false;
+                     } else { console.error("Cannot start: Dimensions not calculated after reset."); }
+                 }, 50);
+            });
+        } else { console.error("Start button not found."); }
+
+        if(resetButton) {
+            resetButton.addEventListener('click', () => {
+                electrolysisRunning = false; init();
+            });
+        } else { console.error("Reset button not found."); }
+
+
+        // --- Initial Setup ---
+        function draw() {
+             if (!ctx) return;
+             if (cellX === undefined) calculateDimensions();
+             if (cellX !== undefined) { drawApparatus(); drawParticles(); }
+             // else { console.error("Cannot draw: Dimensions not calculated."); } // Removed log
+        }
+
+        if (document.readyState === 'loading') { window.addEventListener('DOMContentLoaded', init); }
+        else { init(); }
+
+    </script>
+
+</body>
+</html>

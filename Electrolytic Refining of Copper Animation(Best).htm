@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copper Refining Animation</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column; /* Stack container and button vertically */
+            justify-content: flex-start; /* Align items to the top */
+            align-items: center;
+            min-height: 100vh;
+            background-color: #e0f2f7; /* Light cyan background */
+            font-family: sans-serif;
+            margin: 0;
+            padding-top: 20px;
+        }
+
+        /* Wrapper */
+        .animation-wrapper {
+            position: relative;
+            width: 450px;
+            height: 550px;
+            margin-bottom: 10px;
+        }
+
+        /* Ion Legend */
+        .legend {
+            position: absolute;
+            top: 80px; /* Position below power supply */
+            left: 50%; transform: translateX(-50%);
+            z-index: 20; background: rgba(255, 255, 255, 0.8); padding: 4px 8px;
+            border-radius: 5px; font-size: 10px;
+            display: flex; flex-wrap: wrap; justify-content: center;
+            gap: 8px 12px; border: 1px solid #ccc;
+            max-width: 90%;
+        }
+        .ion-label::before {
+            content: ''; display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 4px; vertical-align: middle;
+            border: 1px solid #666;
+        }
+        .copper-label::before { background-color: #0288d1; }
+        .zinc-label::before { background-color: pink; }
+        .silver-label::before { background-color: silver; border-color: #888; }
+        .ion-label span { vertical-align: middle; }
+
+
+        /* Electrode Labels */
+        .label {
+            position: absolute;
+            top: 100px; /* Position below legend */
+            font-size: 12px; font-weight: bold; z-index: 6;
+            text-align: center; width: 80px;
+        }
+        .anode-label {
+            left: 85px; /* Align with initial anode center */
+            transform: translateX(-50%); color: #d32f2f;
+        }
+        .cathode-label {
+            left: 365px; /* Align with initial cathode center */
+            transform: translateX(-50%); color: #1976d2;
+        }
+
+        /* Power Supply Styles */
+        .power-supply {
+            position: absolute;
+            top: 45px; /* Position near top */
+            left: 50%; transform: translateX(-50%);
+            display: flex;
+            /* UPDATED: Align items (terminals, box) to top */
+            align-items: flex-start;
+            justify-content: center;
+            width: 150px; height: 30px; z-index: 5;
+        }
+        .battery-box {
+            border: 2px solid #616161;
+            padding: 2px 10px; /* Thinner box */
+            font-size: 12px;
+            font-weight: bold; background-color: #f5f5f5; border-radius: 4px;
+            color: #424242;
+            margin-top: 2px; /* Adjust vertical position slightly if needed */
+        }
+        .terminal { font-size: 16px; font-weight: bold; padding: 0 10px; }
+        .terminal.plus { color: #d32f2f; }
+        .terminal.minus { color: #1976d2; }
+
+        /* Wire styles */
+        .wire {
+            position: absolute;
+            background-color: #616161;
+            z-index: 4; /* Behind power supply box, labels */
+        }
+        /* Vertical Wires (Dynamic Position via JS) */
+        .wire-connection {
+            width: 2px; /* Wire thickness */
+            /* UPDATED: Start from new horizontal wire level */
+            top: 60px;
+            /* UPDATED: Adjusted height */
+            height: 82px; /* Height to reach electrode top (142px total) */
+        }
+        /* Initial horizontal position set here, updated by JS */
+        .wire-connection.left { left: 85px; } /* Initial Anode center H relative to wrapper */
+        .wire-connection.right { left: 365px; } /* Initial Cathode center H relative to wrapper */
+
+        /* Dynamic Horizontal wire segments */
+        .wire-h-dynamic {
+            position: absolute;
+            /* UPDATED: Align with vertical center of power supply */
+            top: 60px;
+            height: 2px; /* Wire thickness */
+            background-color: #616161;
+            z-index: 4;
+            /* Left and Width set by JS */
+        }
+
+
+        .refining-container {
+            width: 400px; height: 350px; border: 2px solid #546e7a;
+            background-color: #ffffff; position: absolute;
+            top: 120px; /* Position below labels/wires */
+            left: 50%; transform: translateX(-50%); overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .electrolyte {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 100%;
+            background-color: #b3e5fc; opacity: 0.8; z-index: 1;
+        }
+
+        /* Electrodes Base Style */
+        .electrode {
+            position: absolute; bottom: 50px; height: 80%;
+            border-top: 5px solid #757575;
+            z-index: 5;
+        }
+
+        /* Impure Anode (+) */
+        .anode {
+            left: 30px; width: 60px; background-color: #bcaaa4;
+            border: 1px solid #8d6e63; transform-origin: left center;
+             /* CSS Animation for shrinking */
+        }
+
+        /* Pure Cathode (-) */
+        .cathode {
+            right: 30px; width: 20px; background-color: #f57c00;
+            border: 1px solid #e65100; transform-origin: right center;
+            transform: scaleX(1);
+            transition: transform 0.1s linear;
+             /* JS drives growth */
+        }
+
+        /* Ions */
+        .ion {
+            position: absolute; width: 6px; height: 6px; border-radius: 50%;
+            z-index: 11; opacity: 1; /* Start visible */
+        }
+        .copper-ion { background-color: #0288d1; }
+        .zinc-ion { background-color: pink; }
+
+        /* Anode Sludge (Silver) - Static elements animated by CSS */
+        .sludge-particle {
+            position: absolute; /* Position determined by keyframes */
+            width: 4px; height: 4px;
+            background-color: silver; /* Silver color */
+            border: 1px solid #888;
+            border-radius: 50%; z-index: 2;
+            opacity: 0; /* Start hidden, shown by animation */
+        }
+
+        /* Button Container */
+        .button-container { display: flex; gap: 15px; margin-top: 15px; }
+
+        /* Button Base Style */
+        .control-button {
+            padding: 10px 20px; font-size: 16px; cursor: pointer; border: none;
+            border-radius: 5px; color: white; transition: background-color 0.3s, opacity 0.3s;
+        }
+        .control-button:hover:not(:disabled) { opacity: 0.9; }
+        .control-button:disabled { background-color: #cccccc !important; cursor: not-allowed; opacity: 0.7; }
+
+        /* Specific Button Styles */
+        #startButton { background-color: #4caf50; }
+        #resetButton { background-color: #f44336; }
+
+
+        /* --- CSS Animations (Anode Shrink AND Sludge) --- */
+        .animate .anode { animation: shrinkAnode 30s linear forwards; }
+        /* Sludge animation via CSS */
+        .animate .sludge-particle {
+            animation-name: fallSludge;
+            animation-duration: 4s; /* How long each particle takes to fall */
+            animation-timing-function: ease-in;
+            animation-fill-mode: forwards; /* Stay at the bottom */
+            /* Delays assigned individually below */
+        }
+        /* Stagger the delays for the 10 particles */
+        .animate .sludge-particle:nth-child(1) { animation-delay: 1s; }
+        .animate .sludge-particle:nth-child(2) { animation-delay: 4s; }
+        .animate .sludge-particle:nth-child(3) { animation-delay: 7s; }
+        .animate .sludge-particle:nth-child(4) { animation-delay: 10s; }
+        .animate .sludge-particle:nth-child(5) { animation-delay: 13s; }
+        .animate .sludge-particle:nth-child(6) { animation-delay: 16s; }
+        .animate .sludge-particle:nth-child(7) { animation-delay: 19s; }
+        .animate .sludge-particle:nth-child(8) { animation-delay: 22s; }
+        .animate .sludge-particle:nth-child(9) { animation-delay: 25s; }
+        .animate .sludge-particle:nth-child(10){ animation-delay: 28s; }
+
+
+        /* Keyframes for CSS animations */
+        @keyframes shrinkAnode { from { transform: scaleX(1); } to { transform: scaleX(0.3); } }
+        /* Keyframes for sludge */
+        @keyframes fallSludge {
+            0% {
+                /* Start near anode bottom, slightly randomized horizontally */
+                bottom: 50px;
+                left: calc(30px + 10px + (var(--random-h, 0.5) * 40px)); /* Random between 40px and 80px */
+                opacity: 0;
+            }
+            20% {
+                opacity: 1; /* Appear */
+            }
+            100% {
+                /* Fall to container bottom, slightly randomized horizontally below anode */
+                bottom: 5px;
+                left: calc(30px + (var(--random-h, 0.5) * 60px)); /* Random between 30px and 90px */
+                opacity: 1;
+            }
+        }
+        /* Define random horizontal offset for each particle */
+        .sludge-particle:nth-child(1) { --random-h: 0.1; }
+        .sludge-particle:nth-child(2) { --random-h: 0.8; }
+        .sludge-particle:nth-child(3) { --random-h: 0.3; }
+        .sludge-particle:nth-child(4) { --random-h: 0.6; }
+        .sludge-particle:nth-child(5) { --random-h: 0.2; }
+        .sludge-particle:nth-child(6) { --random-h: 0.9; }
+        .sludge-particle:nth-child(7) { --random-h: 0.4; }
+        .sludge-particle:nth-child(8) { --random-h: 0.7; }
+        .sludge-particle:nth-child(9) { --random-h: 0.5; }
+        .sludge-particle:nth-child(10){ --random-h: 0.35; }
+
+
+    </style>
+</head>
+<body>
+    <div class="animation-wrapper" id="wrapper">
+
+        <div class="legend">
+            <span class="ion-label copper-label"><span>Cu²⁺ (Copper Ion)</span></span>
+            <span class="ion-label zinc-label"><span>Zn²⁺ (Zinc Ion Impurity)</span></span> <span class="ion-label silver-label"><span>Ag (Silver Sludge)</span></span>
+        </div>
+
+        <div class="label anode-label">(+) Anode</div>
+        <div class="label cathode-label">(-) Cathode</div>
+
+        <div class="power-supply">
+            <div class="terminal plus">+</div>
+            <div class="battery-box">DC Source</div> <div class="terminal minus">-</div>
+        </div>
+
+         <div class="wire wire-connection left" id="wire-left"></div>
+         <div class="wire wire-connection right" id="wire-right"></div>
+         <div class="wire wire-h-dynamic left" id="wire-h-left"></div>
+         <div class="wire wire-h-dynamic right" id="wire-h-right"></div>
+
+
+        <div class="refining-container" id="container">
+            <div class="electrolyte"></div>
+            <div class="electrode anode" id="anode"></div>
+            <div class="electrode cathode" id="cathode"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            <div class="sludge-particle"></div>
+            </div>
+    </div>
+
+    <div class="button-container">
+        <button id="startButton" class="control-button">Start Animation</button>
+        <button id="resetButton" class="control-button">Reset</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // No changes needed to JavaScript logic for this layout update
+            const container = document.getElementById('container');
+            const wrapper = document.getElementById('wrapper');
+            const startButton = document.getElementById('startButton');
+            const resetButton = document.getElementById('resetButton');
+            const anode = document.getElementById('anode');
+            const cathode = document.getElementById('cathode');
+            const animationContainer = container;
+            const wireLeft = document.getElementById('wire-left');
+            const wireRight = document.getElementById('wire-right');
+            const wireHLeft = document.getElementById('wire-h-left');
+            const wireHRight = document.getElementById('wire-h-right');
+
+            let ionCreationInterval = null;
+            let zincIonTimeoutIds = []; // RE-ADDED
+            let masterTimeoutId = null;
+            let currentWebAnimations = [];
+            let currentCathodeScale = 1.0;
+            const CATHODE_GROWTH_INCREMENT = 0.015;
+            let wireUpdateLoopId = null; // ID for wire update loop
+
+            const ANIMATION_STOP_DURATION = 30000;
+            const ELECTRODE_BOTTOM_REL = 50;
+            const CONTAINER_HEIGHT = container.clientHeight || 350;
+            const ELECTRODE_TOP_REL = CONTAINER_HEIGHT - ELECTRODE_BOTTOM_REL - (CONTAINER_HEIGHT * 0.80);
+            const ELECTRODE_BOTTOM_POS_REL = CONTAINER_HEIGHT - ELECTRODE_BOTTOM_REL;
+
+            const hWireLeftFixedX = 180;
+            const hWireRightFixedX = 270;
+            const initialAnodeWidth = anode.offsetWidth;
+
+
+            // --- Function to update wire positions ---
+            function updateWirePositions() {
+                // ... (logic remains the same) ...
+                if (!container.classList.contains('animate')) {
+                    wireUpdateLoopId = null; return;
+                }
+                const wrapperRect = wrapper.getBoundingClientRect();
+                const anodeRect = anode.getBoundingClientRect();
+                const cathodeRect = cathode.getBoundingClientRect();
+                const anodeCenterX = anodeRect.left + anodeRect.width / 2 - wrapperRect.left;
+                const cathodeCenterX = cathodeRect.left + cathodeRect.width / 2 - wrapperRect.left;
+                const vWireLeftX = anodeCenterX - 1;
+                const vWireRightX = cathodeCenterX - 1;
+                wireLeft.style.left = `${vWireLeftX}px`;
+                wireRight.style.left = `${vWireRightX}px`;
+                const hWireLeftStart = Math.min(hWireLeftFixedX, vWireLeftX);
+                const hWireLeftWidth = Math.abs(vWireLeftX - hWireLeftFixedX);
+                wireHLeft.style.left = `${hWireLeftStart}px`;
+                wireHLeft.style.width = `${hWireLeftWidth}px`;
+                const hWireRightStart = Math.min(hWireRightFixedX, vWireRightX);
+                const hWireRightWidth = Math.abs(vWireRightX - hWireRightFixedX);
+                wireHRight.style.left = `${hWireRightStart}px`;
+                wireHRight.style.width = `${hWireRightWidth}px`;
+                const anodeLabel = wrapper.querySelector('.anode-label');
+                const cathodeLabel = wrapper.querySelector('.cathode-label');
+                if(anodeLabel) anodeLabel.style.left = `${anodeCenterX}px`;
+                if(cathodeLabel) cathodeLabel.style.left = `${cathodeCenterX}px`;
+                wireUpdateLoopId = requestAnimationFrame(updateWirePositions);
+            }
+
+            // --- Function to get current anode visual edge ---
+            function getCurrentAnodeVisualRightEdgeX() {
+                 // ... (logic remains the same) ...
+                 const style = window.getComputedStyle(anode);
+                 const matrix = style.transform;
+                 let currentScaleX = 1.0;
+                 if (matrix && matrix !== 'none') {
+                     try {
+                        const matrixValues = matrix.match(/matrix.*\((.+)\)/)[1].split(', ');
+                        currentScaleX = parseFloat(matrixValues[0]);
+                     } catch (e) { console.error("Could not parse transform matrix:", matrix); currentScaleX = 1.0; }
+                 }
+                 const currentVisualWidth = initialAnodeWidth * currentScaleX;
+                 return anode.offsetLeft + currentVisualWidth;
+            }
+
+
+            // --- Function to create and animate a single copper ion (Cu2+) ---
+            function createAndAnimateCopperIon() {
+                // ... (logic remains the same) ...
+                if (!container.classList.contains('animate')) return;
+                const ion = document.createElement('div');
+                ion.classList.add('ion', 'copper-ion');
+                const startX = getCurrentAnodeVisualRightEdgeX() - 5;
+                const endX = cathode.offsetLeft + 5;
+                const startY_fromTop = Math.random() * (ELECTRODE_BOTTOM_POS_REL - ELECTRODE_TOP_REL) + ELECTRODE_TOP_REL;
+                const endY_fromTop = Math.random() * (ELECTRODE_BOTTOM_POS_REL - ELECTRODE_TOP_REL) + ELECTRODE_TOP_REL;
+                ion.style.left = `${startX}px`;
+                ion.style.top = `${startY_fromTop}px`;
+                animationContainer.appendChild(ion);
+                const animation = ion.animate([
+                    { left: `${startX}px`, top: `${startY_fromTop}px`, opacity: 1 },
+                    { left: `${endX}px`, top: `${endY_fromTop}px`, opacity: 1 }
+                ], { duration: 12000 + Math.random() * 3000, easing: 'linear' });
+                currentWebAnimations.push(animation);
+                animation.onfinish = () => {
+                    currentCathodeScale += CATHODE_GROWTH_INCREMENT;
+                    cathode.style.transform = `scaleX(${currentCathodeScale})`;
+                    if (ion.parentNode) ion.remove();
+                    currentWebAnimations = currentWebAnimations.filter(anim => anim !== animation);
+                };
+                animation.oncancel = () => {
+                     if (ion.parentNode) ion.remove();
+                     currentWebAnimations = currentWebAnimations.filter(anim => anim !== animation);
+                 };
+            }
+
+            // RE-ADDED: Function for continuous random movement of Zinc ions
+            function continueZincMovement(ion) {
+                 if (masterTimeoutId === null && ionCreationInterval === null) return; // Check if animation should be running
+                 if (!ion || !ion.parentNode) return; // Check if ion exists
+                 const minX = getCurrentAnodeVisualRightEdgeX() + 5; // Use current visual edge
+                 const maxX = cathode.offsetLeft - 5;
+                 const minY_fromTop = ELECTRODE_TOP_REL;
+                 const maxY_fromTop = ELECTRODE_BOTTOM_POS_REL;
+                 if (minX >= maxX) return; // Stop if electrodes touch
+                 const nextX = Math.random() * (maxX - minX) + minX;
+                 const nextY_fromTop = Math.random() * (maxY_fromTop - minY_fromTop) + minY_fromTop;
+                 const currentStyle = window.getComputedStyle(ion);
+                 const currentLeft = parseFloat(currentStyle.left);
+                 const currentTop = parseFloat(currentStyle.top);
+                 const duration = 2000 + Math.random() * 2000;
+                 const animation = ion.animate([
+                     { left: `${currentLeft}px`, top: `${currentTop}px` },
+                     { left: `${nextX}px`, top: `${nextY_fromTop}px` }
+                 ], { duration: duration, easing: 'ease-in-out' });
+                 currentWebAnimations.push(animation);
+                 animation.onfinish = () => { currentWebAnimations = currentWebAnimations.filter(anim => anim !== animation); continueZincMovement(ion); };
+                 animation.oncancel = () => { currentWebAnimations = currentWebAnimations.filter(anim => anim !== animation); };
+            }
+
+            // RE-ADDED: Function to create and animate a single zinc ion (Zn2+)
+             function createAndAnimateZincIon() {
+                 if (!container.classList.contains('animate')) return;
+                 const ion = document.createElement('div');
+                 ion.classList.add('ion', 'zinc-ion');
+                 const startX = getCurrentAnodeVisualRightEdgeX() + 1; // Use current visual edge
+                 const startY_fromTop = Math.random() * (ELECTRODE_BOTTOM_POS_REL - ELECTRODE_TOP_REL) + ELECTRODE_TOP_REL;
+                 const targetX = startX + 40 + (Math.random() * 20 - 10);
+                 const targetY_fromTop = startY_fromTop + (Math.random() * 40 - 20);
+                 const clampedTargetY_fromTop = Math.max(ELECTRODE_TOP_REL, Math.min(targetY_fromTop, ELECTRODE_BOTTOM_POS_REL));
+                 ion.style.left = `${startX}px`;
+                 ion.style.top = `${startY_fromTop}px`;
+                 ion.style.opacity = '1'; // Start visible
+                 animationContainer.appendChild(ion);
+                 const initialAnimation = ion.animate([
+                     { left: `${startX}px`, top: `${startY_fromTop}px`},
+                     { left: `${targetX}px`, top: `${clampedTargetY_fromTop}px`}
+                 ], { duration: 1500 + Math.random() * 1000, easing: 'ease-out' });
+                 currentWebAnimations.push(initialAnimation);
+                 initialAnimation.onfinish = () => { currentWebAnimations = currentWebAnimations.filter(anim => anim !== initialAnimation); continueZincMovement(ion); };
+                 initialAnimation.oncancel = () => { currentWebAnimations = currentWebAnimations.filter(anim => anim !== initialAnimation); };
+            }
+
+
+            // --- Function to start the Cu2+ ion creation loop ---
+            function startLoops() { // Renamed
+                if (ionCreationInterval === null) {
+                    ionCreationInterval = setInterval(createAndAnimateCopperIon, 200);
+                }
+            }
+
+            // --- Function to stop all animation creation ---
+            function stopAnimationCreation() {
+                 if (ionCreationInterval !== null) { clearInterval(ionCreationInterval); ionCreationInterval = null; console.log("Stopped Cu2+ ion creation."); }
+                 zincIonTimeoutIds.forEach(id => clearTimeout(id)); zincIonTimeoutIds = []; console.log("Cleared pending Zn2+ ion creation."); // RE-ADDED
+                 if (wireUpdateLoopId !== null) { cancelAnimationFrame(wireUpdateLoopId); wireUpdateLoopId = null; console.log("Stopped wire updates."); }
+                 resetButton.disabled = false;
+            }
+
+            // --- Function to finalize animation ---
+            function finalizeAnimation() {
+                stopAnimationCreation(); // Stop creating ions etc.
+                startButton.textContent = 'Animation Finished'; // Update button text
+                console.log("Animation finished, sludge settled via CSS.");
+            }
+
+            // --- Function to Reset the entire animation ---
+            function resetAnimation() {
+                console.log("Resetting animation...");
+                stopAnimationCreation();
+                clearTimeout(masterTimeoutId); masterTimeoutId = null;
+                console.log(`Cancelling ${currentWebAnimations.length} active web animations.`);
+                currentWebAnimations.forEach(anim => { if (typeof anim.cancel === 'function') { anim.cancel(); } });
+                currentWebAnimations = [];
+                const dynamicCopperIons = animationContainer.querySelectorAll('.ion.copper-ion');
+                dynamicCopperIons.forEach(ion => ion.remove());
+                console.log(`Removed ${dynamicCopperIons.length} dynamic copper ions.`);
+                // Keep Zinc ions - Ensure they are not selected for removal
+                container.classList.remove('animate'); // Resets anode CSS animation & sludge
+                cathode.style.transform = 'scaleX(1)'; // Reset cathode scale
+                currentCathodeScale = 1.0;
+                // Reset wire initial positions
+                const initialAnodeCenterX = (wrapper.offsetWidth / 2 - container.offsetWidth / 2) + anode.offsetLeft + (initialAnodeWidth / 2); // Use initial width
+                const initialCathodeCenterX = (wrapper.offsetWidth / 2 - container.offsetWidth / 2) + cathode.offsetLeft + (cathode.offsetWidth / 2);
+                wireLeft.style.left = `${initialAnodeCenterX - 1}px`;
+                wireRight.style.left = `${initialCathodeCenterX - 1}px`;
+                // Reset horizontal wires
+                wireHLeft.style.left = `${Math.min(hWireLeftFixedX, initialAnodeCenterX - 1)}px`;
+                wireHLeft.style.width = `${Math.abs((initialAnodeCenterX - 1) - hWireLeftFixedX)}px`;
+                wireHRight.style.left = `${Math.min(hWireRightFixedX, initialCathodeCenterX - 1)}px`;
+                wireHRight.style.width = `${Math.abs((initialCathodeCenterX - 1) - hWireRightFixedX)}px`;
+
+                // Reset label initial positions
+                const anodeLabel = wrapper.querySelector('.anode-label');
+                const cathodeLabel = wrapper.querySelector('.cathode-label');
+                if(anodeLabel) anodeLabel.style.left = `${initialAnodeCenterX}px`;
+                if(cathodeLabel) cathodeLabel.style.left = `${initialCathodeCenterX}px`;
+
+                void container.offsetWidth; // Trigger reflow
+                startButton.disabled = false; startButton.textContent = 'Start Animation'; resetButton.disabled = true;
+            }
+
+             // --- Event Listener for Start Button ---
+            startButton.addEventListener('click', () => {
+                cathode.style.transform = 'scaleX(1)'; currentCathodeScale = 1.0;
+                container.classList.remove('animate'); void container.offsetWidth;
+
+                container.classList.add('animate'); // Starts anode shrink & sludge fall CSS
+                startLoops(); // Starts Cu2+ creation
+                // RE-ADDED: Zinc ion creation loop (using limit 5 from previous state)
+                zincIonTimeoutIds = [];
+                for (let i = 0; i < 5; i++) {
+                    const timeoutId = setTimeout(createAndAnimateZincIon, Math.random() * 5000); // Appear within 5s
+                    zincIonTimeoutIds.push(timeoutId);
+                }
+                if (wireUpdateLoopId === null) { wireUpdateLoopId = requestAnimationFrame(updateWirePositions); } // Start wire updates
+                startButton.disabled = true; startButton.textContent = 'Animating...'; resetButton.disabled = false;
+                masterTimeoutId = setTimeout(finalizeAnimation, ANIMATION_STOP_DURATION); // Use finalize function
+            });
+
+             // --- Event Listener for Reset Button ---
+             resetButton.addEventListener('click', resetAnimation);
+
+             // --- Initial State ---
+             resetButton.disabled = true;
+             // Set initial wire and label positions on load using calculation
+             setTimeout(() => { // Use timeout to wait for layout
+                 const initialAnodeCenterX = (wrapper.offsetWidth / 2 - container.offsetWidth / 2) + anode.offsetLeft + (initialAnodeWidth / 2); // Use initial width
+                 const initialCathodeCenterX = (wrapper.offsetWidth / 2 - container.offsetWidth / 2) + cathode.offsetLeft + (cathode.offsetWidth / 2);
+                 wireLeft.style.left = `${initialAnodeCenterX - 1}px`;
+                 wireRight.style.left = `${initialCathodeCenterX - 1}px`;
+                 // Set initial horizontal wire positions
+                 wireHLeft.style.left = `${Math.min(hWireLeftFixedX, initialAnodeCenterX - 1)}px`;
+                 wireHLeft.style.width = `${Math.abs((initialAnodeCenterX - 1) - hWireLeftFixedX)}px`;
+                 wireHRight.style.left = `${Math.min(hWireRightFixedX, initialCathodeCenterX - 1)}px`;
+                 wireHRight.style.width = `${Math.abs((initialCathodeCenterX - 1) - hWireRightFixedX)}px`;
+                 // Set initial label positions
+                 const anodeLabel = wrapper.querySelector('.anode-label');
+                 const cathodeLabel = wrapper.querySelector('.cathode-label');
+                 if(anodeLabel) anodeLabel.style.left = `${initialAnodeCenterX}px`;
+                 if(cathodeLabel) cathodeLabel.style.left = `${initialCathodeCenterX}px`;
+             }, 0);
+
+
+        });
+    </script>
+
+</body>
+</html>
